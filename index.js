@@ -25,18 +25,7 @@ fastify.register(
 )
 
 // CORS
-fastify.register(require('fastify-cors'), {
-  methods: ['GET'],
-  origin: (origin, callback) => {
-    for (let url of config.cors_origin_whitelist) {
-      if(new RegExp(url).test(origin)) {
-        callback(null, true)
-        return
-      }
-      callback(new Error("Not allowed"), false)
-    }
-  }
-})
+fastify.register(require('fastify-cors'), config.fastifyCorsOptions)
 
 // swagger
 fastify.register(require('fastify-swagger'), {
