@@ -1,6 +1,8 @@
 const path = require('path')
 const config = require('./config')
-const fastify = require('fastify')()
+const fastify = require('fastify')({
+  logger: config.allowLogging
+})
 
 // postgres connection
 fastify.register(require('fastify-postgres'), {
@@ -23,7 +25,18 @@ fastify.register(
 )
 
 // CORS
-fastify.register(require('fastify-cors'))
+fastify.register(require('fastify-cors'), {
+  methods: ['GET'],
+  origin: (origin, callback) => {
+    for (let url of config.cors_origin_whitelist) {
+      if(new RegExp(url).test(origin)) {
+        callback(null, true)
+        return
+      }
+      callback(new Error("Not allowed"), false)
+    }
+  }
+})
 
 // swagger
 fastify.register(require('fastify-swagger'), {
