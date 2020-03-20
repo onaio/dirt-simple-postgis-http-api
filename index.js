@@ -1,8 +1,32 @@
 const path = require('path')
 const config = require('./config')
+const axios = require('axios')
 const fastify = require('fastify')({
   logger: config.allowLogging
 })
+
+// middleware 
+
+fastify.use((req, res, done) => {
+  const tempToken = req && req.url && req.url.split('temp_token=')[1];
+  const referer = req && req.headers && req.headers.referer && req.headers.referer.split('/');
+  const formId = referer && referer[referer.length - 1];
+  if (tempToken) {
+    axios.get(`${config.onadata.formsEndpoint}${formId}.json`, {
+      headers: {
+        'Authorization': `TempToken ${tempToken}`
+      }
+    }).then((res) => {
+      if (res && res.status === 200) {
+        done();
+      } else {
+        done("Forbidden")
+      }
+    });
+  } else {
+    done("Authentication Failure")
+  }
+});
 
 // postgres connection
 fastify.register(require('fastify-postgres'), {
