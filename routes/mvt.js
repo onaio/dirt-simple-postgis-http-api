@@ -1,3 +1,4 @@
+const config = require('../config')
 const sm = require('@mapbox/sphericalmercator')
 const merc = new sm({
   size: 256
@@ -9,13 +10,13 @@ const sql = (params, query) => {
 
   return `
   SELECT 
-    ST_AsMVT(q, '${params.table}', 4096, 'geom')
+    ST_AsMVT(q, '${config.table.name}', 4096, 'geom')
   
   FROM (
     SELECT
       ${query.columns ? `${query.columns},` : ''}
       ST_AsMVTGeom(
-        ST_Transform(${query.geom_column}, 3857),
+        ST_Transform(${config.table.column}, 3857),
         ST_MakeBox2D(ST_Point(${bounds[0]}, ${bounds[1]}), ST_Point(${
     bounds[2]
   }, ${bounds[3]}))
@@ -24,12 +25,12 @@ const sql = (params, query) => {
     FROM (
       SELECT
         ${query.columns ? `${query.columns},` : ''}
-        ${query.geom_column},
+        ${config.table.column},
         srid
       FROM 
-        ${params.table},
-        (SELECT ST_SRID(${query.geom_column}) AS srid FROM ${
-    params.table
+        ${config.table.name},
+        (SELECT ST_SRID(${config.table.column}) AS srid FROM ${
+    config.table.name
   } LIMIT 1) a
         
       WHERE       
@@ -37,7 +38,7 @@ const sql = (params, query) => {
           ST_MakeEnvelope(${bounds.join()}, 3857), 
           srid
         ) && 
-        ${query.geom_column}
+        ${config.table.column}
 
         -- Optional Filter
         ${query.filter ? `AND ${query.filter}` : ''}
@@ -93,7 +94,7 @@ const schema = {
 module.exports = function(fastify, opts, next) {
   fastify.route({
     method: 'GET',
-    url: '/mvt/:table/:z/:x/:y',
+    url: '/mvt/:z/:x/:y',
     schema: schema,
     handler: function(request, reply) {
       fastify.pg.connect(onConnect)
