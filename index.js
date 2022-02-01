@@ -49,7 +49,20 @@ fastify.register(
 )
 
 // CORS
-fastify.register(require('fastify-cors'), config.fastifyCorsOptions)
+fastify.register(require("fastify-cors"), {
+  methods: ["GET"],
+  origin: (origin, callback) => {
+    let cors_whitelist =
+      config.fastifyCorsOptions && config.fastifyCorsOptions.cors_origin_whitelist;
+    for (let url of cors_whitelist) {
+      if (new RegExp(url).test(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("Not allowed"), false);
+    }
+  },
+});
 
 // swagger
 fastify.register(require('fastify-swagger'), {
