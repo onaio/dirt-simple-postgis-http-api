@@ -1,30 +1,33 @@
-const path = require('path')
-const config = require('./config')
-const axios = require('axios')
-const fastify = require('fastify')({
-  logger: config.allowLogging
-})
+const path = require("path");
+const axios = require("axios");
+const queryString = require("query-string");
+const config = require("./config");
+const fastify = require("fastify")({
+  logger: config.allowLogging,
+});
 
 // middleware 
 
 fastify.use((req, res, done) => {
-  const tempToken = req && req.url && req.url.split('temp_token=')[1];
-  const referer = req && req.headers && req.headers.referer && req.headers.referer.split('/');
-  const formId = referer && referer[referer.length - 1];
+  const tempToken = req && req.url && req.url.split("temp_token=")[1];
+  const buildXformStr = queryString.parse(req.url).filter;
+  const getXformId = queryString.parse(buildXformStr.split(" ")[0]).xform_id;
   if (tempToken) {
-    axios.get(`${config.onadata.formsEndpoint}${formId}.json`, {
-      headers: {
-        'Authorization': `TempToken ${tempToken}`
-      }
-    }).then((res) => {
-      if (res && res.status === 200) {
-        done();
-      } else {
-        done("Forbidden")
-      }
-    });
+    axios
+      .get(`${config.onadata.formsEndpoint}${getXformId}.json`, {
+        headers: {
+          Authorization: `TempToken ${tempToken}`,
+        },
+      })
+      .then((res) => {
+        if (res && res.status === 200) {
+          done();
+        } else {
+          done("Forbidden");
+        }
+      });
   } else {
-    done("Authentication Failure")
+    done("Authentication Failure");
   }
 });
 
@@ -49,20 +52,7 @@ fastify.register(
 )
 
 // CORS
-fastify.register(require("fastify-cors"), {
-  methods: ["GET"],
-  origin: (origin, callback) => {
-    let cors_whitelist =
-      config.fastifyCorsOptions && config.fastifyCorsOptions.cors_origin_whitelist;
-    for (let url of cors_whitelist) {
-      if (new RegExp(url).test(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error("Not allowed"), false);
-    }
-  },
-});
+fastify.register(require("fastify-cors"), config.fastifyCorsOptions);
 
 // swagger
 fastify.register(require('fastify-swagger'), {
