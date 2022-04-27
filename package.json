@@ -19,6 +19,7 @@
     "fastify-postgres": "^2.0.0",
     "fastify-static": "^2.4.0",
     "fastify-swagger": "^2.3.2",
-    "pg": "^7.9.0"
+    "pg": "^7.9.0",
+    "query-string": "^7.1.0"
   }
 }
