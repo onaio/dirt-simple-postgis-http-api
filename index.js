@@ -10,9 +10,9 @@ const fastify = require("fastify")({
 
 fastify.use((req, res, done) => {
   const tempToken = req && req.url && req.url.split("temp_token=")[1];
-  const buildXformStr = queryString.parse(req.url).filter;
-  const getXformId = queryString.parse(buildXformStr.split(" ")[0]).xform_id;
   if (tempToken) {
+    const buildXformStr = queryString.parse(req.url).filter;
+    const getXformId = queryString.parse(buildXformStr.split(" ")[0]).xform_id;
     axios
       .get(`${config.onadata.formsEndpoint}${getXformId}.json`, {
         headers: {
