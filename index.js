@@ -39,6 +39,8 @@ async function build() {
           console.log(error)
           done(error.detail);
         });
+    } else if ("/health-check" == req.url) {
+      done()
     } else {
       done("Authentication Failure");
     }
@@ -114,6 +116,10 @@ async function build() {
   // ADD ROUTES
   fastify.register(require('@fastify/autoload'), {
     dir: path.join(__dirname, 'routes')
+  })
+
+  fastify.get('/health-check', { logLevel: 'warn' }, (request, reply) => {
+    reply.send("healthy");
   })
 
 
