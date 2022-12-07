@@ -13,15 +13,17 @@ if ("SERVER_LOGGER" in process.env) {
 const axios = require("axios");
 
 async function build() {
-  const fastify = require("fastify")({ logger: logger })
-  await fastify.register(require('@fastify/express'))
+  const fastify = require("fastify")({ logger: logger });
+  await fastify.register(require('@fastify/express'));
+  const queryString = require("query-string");
   fastify.use((req, res, done) => {
     const tempToken = req && req.url && req.url.split("temp_token=")[1];
     if (tempToken) {
-      const buildXformStr = queryString.parse(req.url).filter;
-      const getXformId = queryString.parse(buildXformStr.split(" ")[0]).xform_id;
+      reqParams = req.url.split("?")[1];
+      const parsedReqParams = queryString.parse(reqParams);
+      const formId = parsedReqParams.form_id;
       axios
-        .get(`${process.env.FORMS_ENDPOINT}${getXformId}.json`, {
+        .get(`${process.env.FORMS_ENDPOINT}${formId}.json`, {
           headers: {
             Authorization: `TempToken ${tempToken}`,
           },
@@ -68,7 +70,7 @@ async function build() {
   })
 
   // CORS
-  fastify.register(require('@fastify/cors'))
+  fastify.register(require('@fastify/cors'), { origin: JSON.parse(process.env.CORS_ORIGINS) })
 
   // OPTIONAL RATE LIMITER
   if ("RATE_MAX" in process.env) {
