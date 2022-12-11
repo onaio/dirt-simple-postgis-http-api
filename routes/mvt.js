@@ -24,7 +24,9 @@ const sql = (params, query) => {
         )
 
         -- Optional Filter
-        ${`AND xform_id=${query.form_id} and geom is not null and deleted_at is null`}
+        ${`AND xform_id=${query.form_id} AND geom is not null AND deleted_at is null`}
+
+        ${query.field_name ? `AND json->>'${query.field_name}'='${query.field_value}'` : ``}
     )
     SELECT ST_AsMVT(mvtgeom.*, '${process.env.TABLE_NAME}', 4096, 'geom' ${query.id_column ? `, '${query.id_column}'` : ''
     }) AS mvt from mvtgeom;
@@ -102,7 +104,6 @@ module.exports = function (fastify, opts, next) {
             reply.send(err)
           } else {
             const mvt = result.rows[0].mvt
-            console.log(mvt)
             if (mvt.length === 0) {
               reply.code(204).send()
             }
