@@ -1,5 +1,8 @@
 name: build and push image to dockerhub
 on:
+  push:
+    branches:
+      - ona-custom-changes
   workflow_dispatch:
     inputs:
       versionTag:
@@ -13,7 +16,7 @@ jobs:
       - name: Checkout to version
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.inputs.versionTag }}
+          ref: ${{ github.event.inputs.versionTag || '0.0.4' }}
 
       - name: Login to DockerHub
         uses: docker/login-action@v2
@@ -29,7 +32,7 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           tags: |
-            onaio/dirt-tile-server:${{ github.event.inputs.versionTag }}
+            onaio/dirt-tile-server:${{ github.event.inputs.versionTag || '0.0.4' }}
 
       - name: Image digest
         run: echo ${{ steps.docker-build.outputs.digest }}
