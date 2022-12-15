@@ -41,8 +41,7 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           push: true
-          tags: |
-            onaio/dirt-tile-server:latest
+          tags: onaio/dirt-tile-server:${{ env.version }}
 
       - name: Image digest
         run: echo ${{ steps.docker-build.outputs.digest }}
