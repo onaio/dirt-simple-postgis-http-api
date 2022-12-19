@@ -17,16 +17,16 @@ async function build() {
   await fastify.register(require('@fastify/express'));
   const queryString = require("query-string");
   fastify.use((req, res, done) => {
-    const tempToken = req && req.url && req.url.split("temp_token=")[1];
-    if (tempToken) {
-      reqParams = req.url.split("?")[1];
-      const parsedReqParams = queryString.parse(reqParams);
-      const formId = parsedReqParams.form_id;
+    reqParams = req.url.split("?")[1];
+    const parsedReqParams = queryString.parse(reqParams);
+    const formId = parsedReqParams.form_id;
+    tempToken = parsedReqParams.temp_token;
+    if (formId) {
       axios
         .get(`${process.env.FORMS_ENDPOINT}${formId}.json`, {
-          headers: {
+          headers: tempToken && tempToken.length > 0 ? {
             Authorization: `TempToken ${tempToken}`,
-          },
+          } : {},
         })
         .then((res) => {
           if (res && res.status === 200) {
