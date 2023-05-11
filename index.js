@@ -36,7 +36,7 @@ async function build() {
           }
         })
         .catch((error) => {
-          console.log(error)
+          req.log.error(err)
           done(error.detail);
         });
     } else if ("/health-check" == req.url) {
@@ -72,7 +72,7 @@ async function build() {
   })
 
   // CORS
-  fastify.register(require('@fastify/cors'), { origin: JSON.parse(process.env.CORS_ORIGINS) })
+  fastify.register(require('@fastify/cors'), { origin: typeof process.env.CORS_ORIGIN === 'string' ? JSON.parse(process.env.CORS_ORIGINS) : process.env.CORS_ORIGINS })
 
   // OPTIONAL RATE LIMITER
   if ("RATE_MAX" in process.env) {
@@ -130,9 +130,9 @@ build()
   .then(fastify => // LAUNCH SERVER
     fastify.listen({ port: process.env.SERVER_PORT || 3000, host: process.env.SERVER_HOST || '0.0.0.0' }, (err, address) => {
       if (err) {
-        console.log(err)
+        fastify.log.error(err)
         process.exit(1)
       }
-      console.info(`Server listening on ${address}`)
+      fastify.log.info(`Server listening on ${address}`)
     }))
   .catch(console.log)
