@@ -1,3 +1,4 @@
+const fs = require('fs')
 const path = require('path')
 require("dotenv").config()
 
@@ -52,6 +53,21 @@ async function build() {
   }
 
   // POSTGRES CONNECTION
+  const postgresConfig = { connectionString: process.env.POSTGRES_CONNECTION }
+
+  if (process.env.SSL_ROOT_CERT) {
+    postgresConfig.ssl = {
+      ca: process.env.SSL_ROOT_CERT
+    }
+  } else if (process.env.SSL_ROOT_CERT_PATH) {
+    postgresConfig.ssl = {
+      ca: fs.readFileSync(process.env.SSL_ROOT_CERT_PATH).toString()
+    }
+  }
+
+  fastify.register(require('@fastify/postgres'), postgresConfig)
+
+  // POSTGRES CONNECTION
   fastify.register(require('@fastify/postgres'), {
     connectionString: process.env.POSTGRES_CONNECTION
   })
@@ -85,8 +101,9 @@ async function build() {
   // INITIALIZE SWAGGER
   fastify.register(require('@fastify/swagger'), {
     exposeRoute: true,
-    routePrefix: '/',
+    hideUntagged: true,
     swagger: {
+      "basePath": process.env.BASE_PATH || "/",
       "info": {
         "title": "Dirt-Simple PostGIS HTTP API",
         "description": "The Dirt-Simple PostGIS HTTP API is an easy way to expose geospatial functionality to your applications. It takes simple requests over HTTP and returns JSON, JSONP, or protobuf (Mapbox Vector Tile) to the requester. Although the focus of the project has generally been on exposing PostGIS functionality to web apps, you can use the framework to make an API to any database.",
@@ -96,10 +113,6 @@ async function build() {
         "url": "https://github.com/tobinbradley/dirt-simple-postgis-http-api",
         "description": "Source code on Github"
       },
-      "schemes": [
-        "http",
-        "https"
-      ],
       "tags": [{
         "name": "api",
         "description": "code related end-points"
@@ -126,6 +139,7 @@ async function build() {
   return fastify
 }
 
+// LAUNCH SERVER
 build()
   .then(fastify => // LAUNCH SERVER
     fastify.listen({ port: process.env.SERVER_PORT || 3000, host: process.env.SERVER_HOST || '0.0.0.0' }, (err, address) => {
