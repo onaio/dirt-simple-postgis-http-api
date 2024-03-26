@@ -67,11 +67,6 @@ async function build() {
 
   fastify.register(require('@fastify/postgres'), postgresConfig)
 
-  // POSTGRES CONNECTION
-  fastify.register(require('@fastify/postgres'), {
-    connectionString: process.env.POSTGRES_CONNECTION
-  })
-
   // COMPRESSION
   // add x-protobuf
   fastify.register(
