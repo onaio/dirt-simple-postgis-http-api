@@ -1,6 +1,5 @@
 const fs = require('fs')
 const path = require('path')
-const queryString = (...args) => import('query-string');
 require("dotenv").config()
 
 // LOGGER OPTIONS
@@ -17,6 +16,7 @@ const axios = require("axios");
 async function build() {
   const fastify = require("fastify")({ logger: logger });
   await fastify.register(require('@fastify/express'));
+  const queryString = require("query-string");
   fastify.use((req, res, done) => {
     reqParams = req.url.split("?")[1];
     const parsedReqParams = queryString.parse(reqParams);
