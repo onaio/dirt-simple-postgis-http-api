@@ -23,7 +23,7 @@ const sql = (params, query) => {
           ${query.id_column ? `, ${query.id_column}` : ''}
       FROM
         mvtgeom2,
-        (SELECT ST_SRID(${process.env.TABLE_COLUMN}) AS srid FROM mvtgeom2 WHERE ${process.env.TABLE_COLUMN} LIMIT 1) a
+        (SELECT ST_SRID(${process.env.TABLE_COLUMN}) AS srid FROM mvtgeom2 LIMIT 1) a
       WHERE
         ST_Intersects(
           ${process.env.TABLE_COLUMN},
