@@ -3,30 +3,38 @@ require("dotenv").config()
 
 const sql = (params, query) => {
   return `
-    WITH mvtgeom as (
+    WITH mvtgeom2 as (
+      SELECT
+        id,
+        json,
+        geom
+      FROM
+        ${process.env.TABLE_NAME}
+      WHERE
+        ${`xform_id=${query.form_id} AND geom is not null AND deleted_at is null`}
+    ), mvtgeom as (
       SELECT
         ST_AsMVTGeom (
           ST_Transform(${process.env.TABLE_COLUMN}, 3857),
-          ST_TileEnvelope(${params.z}, ${params.x}, ${params.y})
-        ) as geom, id, json
-        ${query.columns ? `, ${query.columns}` : ''}
-        ${query.id_column ? `, ${query.id_column}` : ''}
+          ST_TileEnvelope(${params.z}, ${params.x}, ${params.y})) as geom,
+          id,
+          json
+          ${query.columns ? `, ${query.columns}` : ''}
+          ${query.id_column ? `, ${query.id_column}` : ''}
       FROM
-        ${process.env.TABLE_NAME},
-        (SELECT ST_SRID(${process.env.TABLE_COLUMN}) AS srid FROM ${process.env.TABLE_NAME} WHERE ${process.env.TABLE_COLUMN} IS NOT NULL LIMIT 1) a
+        mvtgeom2,
+        (SELECT ST_SRID(${process.env.TABLE_COLUMN}) AS srid FROM mvtgeom2 LIMIT 1) a
       WHERE
         ST_Intersects(
           ${process.env.TABLE_COLUMN},
           ST_Transform(
             ST_TileEnvelope(${params.z}, ${params.x}, ${params.y}),
             srid
+            )
           )
-        )
 
-        -- Optional Filter
-        ${`AND xform_id=${query.form_id} AND geom is not null AND deleted_at is null`}
-
-        ${query.field_name ? `AND json->>'${query.field_name}'='${query.field_value}'` : ``}
+          -- Optional Filter
+          ${query.field_name ? `AND json->>'${query.field_name}'='${query.field_value}'` : ``}
     )
     SELECT ST_AsMVT(mvtgeom.*, '${process.env.TABLE_NAME}', 4096, 'geom' ${query.id_column ? `, '${query.id_column}'` : ''
     }) AS mvt from mvtgeom;
