@@ -14,24 +14,28 @@ const sql = (params, query) => {
         ${`xform_id=${query.form_id} AND geom is not null AND deleted_at is null`}
     ), mvtgeom as (
       SELECT
-        ST_AsMVTGeom (
-          ST_Transform(${process.env.TABLE_COLUMN}, 3857),
-          ST_TileEnvelope(${params.z}, ${params.x}, ${params.y})) as geom,
+        ST_AsMVTGeom (geom, ST_TileEnvelope (${params.z}, ${params.x}, ${params.y})) as geom,
           id,
           json
           ${query.columns ? `, ${query.columns}` : ''}
           ${query.id_column ? `, ${query.id_column}` : ''}
       FROM
-        mvtgeom2,
-        (SELECT ST_SRID(${process.env.TABLE_COLUMN}) AS srid FROM mvtgeom2 LIMIT 1) a
-      WHERE
-        ST_Intersects(
-          ${process.env.TABLE_COLUMN},
-          ST_Transform(
-            ST_TileEnvelope(${params.z}, ${params.x}, ${params.y}),
-            srid
-            )
-          )
+        (
+          SELECT
+              id,
+              json,
+              ST_Transform (geom, 3857) as geom
+          FROM
+            mvtgeom2
+        ) transformed_geom
+
+        -- Add where clause only when filtering by bounds
+        ${params.z == 0 && params.x == 0 && params.y == 0 ? `
+        WHERE
+          ST_Intersects(
+            ${process.env.TABLE_COLUMN},
+            ST_TileEnvelope(${params.z}, ${params.x}, ${params.y})
+            )`: ``}
 
           -- Optional Filter
           ${query.field_name ? `AND json->>'${query.field_name}'='${query.field_value}'` : ``}
