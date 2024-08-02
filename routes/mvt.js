@@ -1,6 +1,9 @@
 // route query
 require("dotenv").config()
 
+const { createClient } = require('redis');
+const crypto = require('crypto');
+
 const sql = (params, query) => {
   return `
     WITH mvtgeom2 as (
@@ -30,7 +33,7 @@ const sql = (params, query) => {
         ) transformed_geom
 
         -- Add where clause only when filtering by bounds
-        ${params.z == 0 && params.x == 0 && params.y == 0 ? `
+        ${String(params.z) == '0' && String(params.x) == '0' && String(params.y) == '0' ? `
         WHERE
           ST_Intersects(
             ${process.env.TABLE_COLUMN},
@@ -92,6 +95,40 @@ const schema = {
   }
 }
 
+const initializeRedis = async () => {
+  const client = createClient();
+
+  client.on('error', err => console.log('Redis Client Error', err));
+
+  return client.connect();
+}
+
+// cache results for at least 2 minutes
+const cacheResults = async (params, results) => {
+  client = await initializeRedis()
+  client.set(params, results)
+}
+
+const getCachedResults = async (cacheKey) => {
+  client = await initializeRedis()
+  return await client.get(cacheKey)
+}
+
+
+// Function to merge two objects and generate a hash
+function mergeAndHash(params, query) {
+    const mergedObject = { ...params, ...query };
+    const jsonString = JSON.stringify(mergedObject);
+    const hash = crypto.createHash('sha256').update(jsonString).digest('hex');
+
+    return hash;
+}
+
+function arrayBufferToBase64(buffer) {
+  return Buffer.from(buffer).toString('base64');
+}
+
+
 // create route
 module.exports = function (fastify, opts, next) {
   fastify.route({
@@ -99,7 +136,21 @@ module.exports = function (fastify, opts, next) {
     url: '/mvt/:z/:x/:y',
     schema: schema,
     handler: function (request, reply) {
-      fastify.pg.connect(onConnect)
+      // check redis to see if we have cached something already
+      cacheKey = mergeAndHash(request.params, request.query)
+      getCachedResults(cacheKey).then((
+        cacheResult
+      )=> {
+        if (cacheResult == null) {
+          fastify.pg.connect(onConnect)
+        } else {
+          reply.header('Content-Type', 'application/x-protobuf').send(Buffer.from(cacheResults, 'base64').buffer)
+        }
+      }
+      ).catch((error) => {
+        console.log(error)
+      } )
+
 
       function onConnect(err, client, release) {
         if (err) {
@@ -116,6 +167,7 @@ module.exports = function (fastify, opts, next) {
             reply.send(err)
           } else {
             const mvt = result.rows[0].mvt
+            cacheResults(cacheKey, arrayBufferToBase64(mvt))
             if (mvt.length === 0) {
               reply.code(204).send()
             }
