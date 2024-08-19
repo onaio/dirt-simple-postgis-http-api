@@ -2,21 +2,26 @@
 require("dotenv").config()
 
 const sql = (params, query) => {
-    return `
-    SELECT
-      ST_XMin(bbox) AS xMin,
-      ST_YMin(bbox) AS yMin,
-      ST_XMax(bbox) AS xMax,
-      ST_YMax(bbox) AS yMax
+  return `
+  SELECT
+    ST_XMin(bbox) AS xMin,
+    ST_YMin(bbox) AS yMin,
+    ST_XMax(bbox) AS xMax,
+    ST_YMax(bbox) AS yMax
+  FROM (
+    SELECT ST_Extent(${process.env.TABLE_COLUMN}) AS bbox
     FROM (
-        SELECT ST_Extent(${process.env.TABLE_COLUMN}) AS bbox
-        FROM ${process.env.TABLE_NAME}
-        WHERE ${`xform_id=${query.form_id} AND geom is not null AND deleted_at is null`}
-    ) AS subquery;
-    `
-  }
+      SELECT ${process.env.TABLE_COLUMN}
+      FROM ${process.env.TABLE_NAME}
+      WHERE ${`xform_id=${query.form_id} AND geom is not null AND deleted_at is null`}
 
-  
+      -- Optional row LIMIT
+      ${query.limit ? `LIMIT ${query.limit}` : '' }
+    ) As limited_rows
+  ) AS subquery;
+  `
+}
+
  // route schema
 const schema = {
   description:
@@ -27,6 +32,10 @@ const schema = {
     form_id: {
       type: 'string | number',
       description: 'Form is',
+    },
+    limit: {
+      type: 'string',
+      description: 'Optional rows limit count.'
     }
   }
 }
