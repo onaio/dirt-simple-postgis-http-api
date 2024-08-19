@@ -31,7 +31,7 @@ const schema = {
   querystring: {
     form_id: {
       type: 'string',
-      description: 'Form is',
+      description: 'Form id',
     },
     limit: {
       type: 'string',
@@ -62,7 +62,7 @@ module.exports = function (fastify, opts, next) {
             if (err) {
               reply.code(400).send(err)
             } else {
-              if(result.rows > 0) {
+              if(result.rows?.length > 0) {
                 reply.send(result.rows[0])
               } else {
                 reply.code(404).send({error: 'No data found' });
