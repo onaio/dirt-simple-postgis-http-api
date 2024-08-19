@@ -30,7 +30,7 @@ const schema = {
   summary: 'Return bounds',
   querystring: {
     form_id: {
-      type: 'string | number',
+      type: 'string',
       description: 'Form is',
     },
     limit: {
