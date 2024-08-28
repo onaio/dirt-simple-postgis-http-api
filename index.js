@@ -37,7 +37,7 @@ async function build() {
           }
         })
         .catch((error) => {
-          req.log.error(err)
+          req.log.error(error)
           done(error.detail);
         });
     } else if ("/health-check" == req.url) {
