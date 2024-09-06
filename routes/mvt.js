@@ -1,5 +1,7 @@
 // route query
 require("dotenv").config()
+const QueryStream = require('pg-query-stream')
+const { pipeline, Transform } = require('stream');
 
 const sql = (params, query) => {
   return `
@@ -107,21 +109,65 @@ module.exports = function (fastify, opts, next) {
           return reply.code(500).send({ error: "Database connection error." })
         }
 
-        client.query(sql(request.params, request.query), function onResult(
-          err,
-          result
-        ) {
+        // client.query(sql(request.params, request.query), function onResult(
+        //   err,
+        //   result
+        // ) {
+        //   release()
+        //   if (err) {
+        //     reply.send(err)
+        //   } else {
+        //     const mvt = result.rows[0].mvt
+        //     if (mvt.length === 0) {
+        //       reply.code(204).send()
+        //     }
+        //     reply.header('Content-Type', 'application/x-protobuf').send(mvt)
+        //   }
+        // })
+       
+
+        // Create a streaming query
+        const queryStream = new QueryStream(sql(request.params, request.query));
+
+        // Execute the query as a stream
+        const stream = client.query(queryStream);
+
+        // Ensure the client is released once streaming is done
+        stream.on('end', () => {
           release()
-          if (err) {
-            reply.send(err)
-          } else {
-            const mvt = result.rows[0].mvt
-            if (mvt.length === 0) {
-              reply.code(204).send()
-            }
-            reply.header('Content-Type', 'application/x-protobuf').send(mvt)
+        });
+
+        // Handle database errors during streaming
+        stream.on('error', (_) => {
+          release();
+          reply.code(500).send({ error: 'Database query error.' });
+        });
+
+        // Create a transform stream to convert objects to Buffers
+        const transformToBuffer = new Transform({
+          objectMode: true,
+          transform(row, encoding, callback) {
+            const rawMvt = row.mvt
+            const mvtBuffer = Buffer.from(rawMvt, 'binary');
+            callback(null, mvtBuffer);
           }
-        })
+        });
+
+        // Handle transform stream errors
+        // transformToBuffer.on('error', (transformErr) => {
+        //   console.log("____",transformErr);
+        //   reply.code(500).send({ error: 'Transform error.' });
+        // });
+
+
+        // Stream the data to the client
+        pipeline(stream, transformToBuffer, reply.raw, (pipelineErr) => {
+          if (pipelineErr) {
+            request.log.error(pipelineErr);
+            reply.code(500).send({ error: 'Streaming error.' });
+          }
+        });
+
       }
     }
   })
