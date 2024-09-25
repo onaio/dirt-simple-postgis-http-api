@@ -15,13 +15,12 @@ const axios = require("axios");
 
 async function build() {
   const fastify = require("fastify")({ logger: logger });
-  await fastify.register(require('@fastify/express'));
   const queryString = require("query-string");
-  fastify.use((req, res, done) => {
+  fastify.addHook('onRequest', async (req, reply) => {
     reqParams = req.url.split("?")[1];
     const parsedReqParams = queryString.parse(reqParams);
     const formId = parsedReqParams.form_id;
-    tempToken = parsedReqParams.temp_token;
+    const tempToken = parsedReqParams.temp_token;
     if (formId) {
       axios
         .get(`${process.env.FORMS_ENDPOINT}${formId}.json`, {
@@ -31,19 +30,19 @@ async function build() {
         })
         .then((res) => {
           if (res && res.status === 200) {
-            done();
+            return;
           } else {
-            done("Forbidden");
+            reply.code(403).send("Forbidden");
           }
         })
         .catch((error) => {
           req.log.error(error)
-          done(error.detail);
+          reply.code((error?.status || 500)).send(error.message);
         });
     } else if ("/health-check" == req.url) {
-      done()
+      return;
     } else {
-      done("Authentication Failure");
+      reply.code(401).send("Authentication Failure");
     }
   });
 

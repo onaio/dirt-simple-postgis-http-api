@@ -1,5 +1,5 @@
 # adapted from https://nodejs.org/en/docs/guides/nodejs-docker-webapp/
-FROM node:20.15.1-alpine3.20
+FROM node:20.17.0-alpine3.20
 RUN apk update && apk upgrade
 WORKDIR /usr/src/app
 COPY package*.json ./
