@@ -82,7 +82,7 @@ async function build() {
   })
 
   // CORS
-  fastify.register(require('@fastify/cors'), { origin: typeof process.env.CORS_ORIGIN === 'string' ? process.env.CORS_ORIGINS.split(",") : process.env.CORS_ORIGINS })
+  fastify.register(require('@fastify/cors'), { origin: typeof process.env.CORS_ORIGINS === 'string' ? process.env.CORS_ORIGINS.split(",") : process.env.CORS_ORIGINS })
 
   // OPTIONAL RATE LIMITER
   if ("RATE_MAX" in process.env) {
