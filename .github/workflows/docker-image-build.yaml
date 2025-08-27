@@ -2,7 +2,8 @@ name: build and push image to dockerhub
 on:
   push:
     tags:
-      - '[0-9]+\.[0-9]+\.[0-9]+(-rc)?'
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-rc'
   workflow_dispatch:
     inputs:
       version:
