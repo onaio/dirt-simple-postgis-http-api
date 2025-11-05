@@ -145,6 +145,29 @@ const schema = {
             description:
                 "Optional filter parameters for a SQL WHERE statement.",
         },
+        form_id: {
+            type: "integer",
+            description: "ID of a regular form to query data from.",
+        },
+        merged_dataset_id: {
+            type: "integer",
+            description:
+                "ID of a merged dataset to query data from all constituent forms.",
+        },
+        dataview_id: {
+            type: "integer",
+            description:
+                "ID of a dataview to query data with applied filters.",
+        },
+        field_name: {
+            type: "string",
+            description: "Optional field name for custom JSON filtering.",
+        },
+        field_value: {
+            type: "string",
+            description:
+                "Optional field value for custom JSON filtering (used with field_name).",
+        },
     },
 };
 
