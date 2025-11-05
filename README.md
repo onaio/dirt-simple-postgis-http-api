@@ -150,6 +150,25 @@ map.on('load', function() {
 })
 ```
 
+#### MVT Query Parameters
+
+The `mvt` route supports different query parameters for accessing different types of forms:
+
+- **Regular form**: Use `form_id` parameter
+  ```
+  /v1/mvt/{z}/{x}/{y}?form_id=842230
+  ```
+
+- **Merged dataset**: Use `merged_dataset_id` parameter to fetch data from all constituent forms
+  ```
+  /v1/mvt/{z}/{x}/{y}?merged_dataset_id=852601
+  ```
+
+- **Dataview**: Use `dataview_id` parameter to fetch data with applied filters
+  ```
+  /v1/mvt/{z}/{x}/{y}?dataview_id=12345
+  ```
+
 ### Changes require a Restart
 
 If you modify code or add a route, dirt will not see it until dirt is restarted.
