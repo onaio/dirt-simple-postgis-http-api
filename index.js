@@ -20,6 +20,11 @@ async function build() {
     const fastify = require("fastify")({ logger: logger });
     const queryString = require("query-string");
     fastify.addHook("onRequest", async (req, reply) => {
+        // Check for health-check endpoint first
+        if ("/health-check" == req.url) {
+            return;
+        }
+
         reqParams = req.url.split("?")[1];
         const parsedReqParams = queryString.parse(reqParams);
         const formId = parsedReqParams.form_id;
@@ -27,34 +32,30 @@ async function build() {
         const mergedDatasetId = parsedReqParams.merged_dataset_id;
         const tempToken = parsedReqParams.temp_token;
         let permissionsCheckEndpoint = `${process.env.FORMS_ENDPOINT}${formId}.json`;
-        if (dataviewId !== null) {
+        if (dataviewId !== undefined && dataviewId !== null) {
             permissionsCheckEndpoint = `${process.env.DATAVIEWS_ENDPOINT}${dataviewId}.json`;
-        } else if (mergedDatasetId !== null) {
+        } else if (mergedDatasetId !== undefined && mergedDatasetId !== null) {
             permissionsCheckEndpoint = `${process.env.MERGED_DATASETS_ENDPOINT}${mergedDatasetId}.json`;
         }
         if (permissionsCheckEndpoint) {
-            axios
-                .get(permissionsCheckEndpoint, {
+            try {
+                const res = await axios.get(permissionsCheckEndpoint, {
                     headers:
                         tempToken && tempToken.length > 0
                             ? {
                                   Authorization: `TempToken ${tempToken}`,
                               }
                             : {},
-                })
-                .then((res) => {
-                    if (res && res.status === 200) {
-                        return;
-                    } else {
-                        reply.code(403).send("Forbidden");
-                    }
-                })
-                .catch((error) => {
-                    req.log.error(error);
-                    reply.code(error?.status || 500).send(error.message);
                 });
-        } else if ("/health-check" == req.url) {
-            return;
+                if (res && res.status === 200) {
+                    return;
+                } else {
+                    reply.code(403).send("Forbidden");
+                }
+            } catch (error) {
+                req.log.error(error);
+                reply.code(error?.status || 500).send(error.message);
+            }
         } else {
             reply.code(401).send("Authentication Failure");
         }
