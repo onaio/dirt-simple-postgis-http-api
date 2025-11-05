@@ -32,7 +32,7 @@ async function build() {
         } else if (mergedDatasetId !== null) {
             permissionsCheckEndpoint = `${process.env.MERGED_DATASETS_ENDPOINT}${mergedDatasetId}.json`;
         }
-        if (formId && permissionsCheckEndpoint) {
+        if (permissionsCheckEndpoint) {
             axios
                 .get(permissionsCheckEndpoint, {
                     headers:
