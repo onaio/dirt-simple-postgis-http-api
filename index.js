@@ -1,146 +1,183 @@
-const fs = require('fs')
-const path = require('path')
-require("dotenv").config()
+const fs = require("fs");
+const path = require("path");
+require("dotenv").config();
 
 // LOGGER OPTIONS
-let logger = false
+let logger = false;
 if ("SERVER_LOGGER" in process.env) {
-  logger = process.env.SERVER_LOGGER === "true" ? { level: 'info' } : { level: process.env.SERVER_LOGGER }
-  if ("SERVER_LOGGER_PATH" in process.env) {
-    logger.file = process.env.SERVER_LOGGER_PATH
-  }
+    logger =
+        process.env.SERVER_LOGGER === "true"
+            ? { level: "info" }
+            : { level: process.env.SERVER_LOGGER };
+    if ("SERVER_LOGGER_PATH" in process.env) {
+        logger.file = process.env.SERVER_LOGGER_PATH;
+    }
 }
 
 const axios = require("axios");
 
 async function build() {
-  const fastify = require("fastify")({ logger: logger });
-  const queryString = require("query-string");
-  fastify.addHook('onRequest', async (req, reply) => {
-    reqParams = req.url.split("?")[1];
-    const parsedReqParams = queryString.parse(reqParams);
-    const formId = parsedReqParams.form_id;
-    const tempToken = parsedReqParams.temp_token;
-    if (formId) {
-      axios
-        .get(`${process.env.FORMS_ENDPOINT}${formId}.json`, {
-          headers: tempToken && tempToken.length > 0 ? {
-            Authorization: `TempToken ${tempToken}`,
-          } : {},
-        })
-        .then((res) => {
-          if (res && res.status === 200) {
+    const fastify = require("fastify")({ logger: logger });
+    const queryString = require("query-string");
+    fastify.addHook("onRequest", async (req, reply) => {
+        // Check for health-check endpoint first
+        if ("/health-check" == req.url) {
             return;
-          } else {
-            reply.code(403).send("Forbidden");
-          }
-        })
-        .catch((error) => {
-          req.log.error(error)
-          reply.code((error?.status || 500)).send(error.message);
+        }
+
+        reqParams = req.url.split("?")[1];
+        const parsedReqParams = queryString.parse(reqParams);
+        const formId = parsedReqParams.form_id;
+        const dataviewId = parsedReqParams.dataview_id;
+        const mergedDatasetId = parsedReqParams.merged_dataset_id;
+        const tempToken = parsedReqParams.temp_token;
+        let permissionsCheckEndpoint = `${process.env.FORMS_ENDPOINT}${formId}.json`;
+        if (dataviewId !== undefined && dataviewId !== null) {
+            permissionsCheckEndpoint = `${process.env.DATAVIEWS_ENDPOINT}${dataviewId}.json`;
+        } else if (mergedDatasetId !== undefined && mergedDatasetId !== null) {
+            permissionsCheckEndpoint = `${process.env.MERGED_DATASETS_ENDPOINT}${mergedDatasetId}.json`;
+        }
+        if (permissionsCheckEndpoint) {
+            try {
+                const res = await axios.get(permissionsCheckEndpoint, {
+                    headers:
+                        tempToken && tempToken.length > 0
+                            ? {
+                                  Authorization: `TempToken ${tempToken}`,
+                              }
+                            : {},
+                });
+                if (res && res.status === 200) {
+                    return;
+                } else {
+                    reply.code(403).send("Forbidden");
+                }
+            } catch (error) {
+                req.log.error(error);
+                reply.code(error?.status || 500).send(error.message);
+            }
+        } else {
+            reply.code(401).send("Authentication Failure");
+        }
+    });
+
+    // EXIT IF POSTGRES_CONNECTION ENV VARIABLE NOT SET
+    if (!("POSTGRES_CONNECTION" in process.env)) {
+        throw new Error(
+            "Required ENV variable POSTGRES_CONNECTION is not set. Please see README.md for more information.",
+        );
+    }
+
+    // POSTGRES CONNECTION
+    const postgresConfig = {
+        connectionString: process.env.POSTGRES_CONNECTION,
+    };
+
+    if (process.env.SSL_ROOT_CERT) {
+        postgresConfig.ssl = {
+            ca: process.env.SSL_ROOT_CERT,
+        };
+    } else if (process.env.SSL_ROOT_CERT_PATH) {
+        postgresConfig.ssl = {
+            ca: fs.readFileSync(process.env.SSL_ROOT_CERT_PATH).toString(),
+        };
+    }
+
+    fastify.register(require("@fastify/postgres"), postgresConfig);
+
+    // COMPRESSION
+    // add x-protobuf
+    fastify.register(require("@fastify/compress"), {
+        customTypes: /x-protobuf$/,
+    });
+
+    // CACHE SETTINGS
+    fastify.register(require("@fastify/caching"), {
+        privacy: process.env.CACHE_PRIVACY || "private",
+        expiresIn: process.env.CACHE_EXPIRESIN || 3600,
+        serverExpiresIn: process.env.CACHE_SERVERCACHE,
+    });
+
+    // CORS
+    fastify.register(require("@fastify/cors"), {
+        origin:
+            typeof process.env.CORS_ORIGINS === "string"
+                ? process.env.CORS_ORIGINS.split(",")
+                : process.env.CORS_ORIGINS,
+    });
+
+    // OPTIONAL RATE LIMITER
+    if ("RATE_MAX" in process.env) {
+        fastify.register(import("@fastify/rate-limit"), {
+            max: process.env.RATE_MAX,
+            timeWindow: "1 minute",
         });
-    } else if ("/health-check" == req.url) {
-      return;
-    } else {
-      reply.code(401).send("Authentication Failure");
     }
-  });
 
-  // EXIT IF POSTGRES_CONNECTION ENV VARIABLE NOT SET
-  if (!("POSTGRES_CONNECTION" in process.env)) {
-    throw new Error("Required ENV variable POSTGRES_CONNECTION is not set. Please see README.md for more information.");
-  }
+    // INITIALIZE SWAGGER
+    fastify.register(require("@fastify/swagger"), {
+        exposeRoute: true,
+        hideUntagged: true,
+        swagger: {
+            basePath: process.env.BASE_PATH || "/",
+            info: {
+                title: "Dirt-Simple PostGIS HTTP API",
+                description:
+                    "The Dirt-Simple PostGIS HTTP API is an easy way to expose geospatial functionality to your applications. It takes simple requests over HTTP and returns JSON, JSONP, or protobuf (Mapbox Vector Tile) to the requester. Although the focus of the project has generally been on exposing PostGIS functionality to web apps, you can use the framework to make an API to any database.",
+                version: process.env.npm_package_version || "",
+            },
+            externalDocs: {
+                url: "https://github.com/tobinbradley/dirt-simple-postgis-http-api",
+                description: "Source code on Github",
+            },
+            tags: [
+                {
+                    name: "api",
+                    description: "code related end-points",
+                },
+                {
+                    name: "feature",
+                    description:
+                        "features in common formats for direct mapping.",
+                },
+                {
+                    name: "meta",
+                    description: "meta information for tables and views.",
+                },
+            ],
+        },
+    });
 
-  // POSTGRES CONNECTION
-  const postgresConfig = { connectionString: process.env.POSTGRES_CONNECTION }
+    // ADD ROUTES
+    fastify.register(require("@fastify/autoload"), {
+        dir: path.join(__dirname, "routes"),
+    });
 
-  if (process.env.SSL_ROOT_CERT) {
-    postgresConfig.ssl = {
-      ca: process.env.SSL_ROOT_CERT
-    }
-  } else if (process.env.SSL_ROOT_CERT_PATH) {
-    postgresConfig.ssl = {
-      ca: fs.readFileSync(process.env.SSL_ROOT_CERT_PATH).toString()
-    }
-  }
+    fastify.get("/health-check", { logLevel: "warn" }, (request, reply) => {
+        reply.send("healthy");
+    });
 
-  fastify.register(require('@fastify/postgres'), postgresConfig)
-
-  // COMPRESSION
-  // add x-protobuf
-  fastify.register(
-    require('@fastify/compress'),
-    { customTypes: /x-protobuf$/ }
-  )
-
-  // CACHE SETTINGS
-  fastify.register(
-    require('@fastify/caching'), {
-    privacy: process.env.CACHE_PRIVACY || 'private',
-    expiresIn: process.env.CACHE_EXPIRESIN || 3600,
-    serverExpiresIn: process.env.CACHE_SERVERCACHE
-  })
-
-  // CORS
-  fastify.register(require('@fastify/cors'), { origin: typeof process.env.CORS_ORIGINS === 'string' ? process.env.CORS_ORIGINS.split(",") : process.env.CORS_ORIGINS })
-
-  // OPTIONAL RATE LIMITER
-  if ("RATE_MAX" in process.env) {
-    fastify.register(import('@fastify/rate-limit'), {
-      max: process.env.RATE_MAX,
-      timeWindow: '1 minute'
-    })
-  }
-
-  // INITIALIZE SWAGGER
-  fastify.register(require('@fastify/swagger'), {
-    exposeRoute: true,
-    hideUntagged: true,
-    swagger: {
-      "basePath": process.env.BASE_PATH || "/",
-      "info": {
-        "title": "Dirt-Simple PostGIS HTTP API",
-        "description": "The Dirt-Simple PostGIS HTTP API is an easy way to expose geospatial functionality to your applications. It takes simple requests over HTTP and returns JSON, JSONP, or protobuf (Mapbox Vector Tile) to the requester. Although the focus of the project has generally been on exposing PostGIS functionality to web apps, you can use the framework to make an API to any database.",
-        "version": process.env.npm_package_version || ""
-      },
-      "externalDocs": {
-        "url": "https://github.com/tobinbradley/dirt-simple-postgis-http-api",
-        "description": "Source code on Github"
-      },
-      "tags": [{
-        "name": "api",
-        "description": "code related end-points"
-      }, {
-        "name": "feature",
-        "description": "features in common formats for direct mapping."
-      }, {
-        "name": "meta",
-        "description": "meta information for tables and views."
-      }]
-    }
-  })
-
-  // ADD ROUTES
-  fastify.register(require('@fastify/autoload'), {
-    dir: path.join(__dirname, 'routes')
-  })
-
-  fastify.get('/health-check', { logLevel: 'warn' }, (request, reply) => {
-    reply.send("healthy");
-  })
-
-
-  return fastify
+    return fastify;
 }
 
 // LAUNCH SERVER
 build()
-  .then(fastify => // LAUNCH SERVER
-    fastify.listen({ port: process.env.SERVER_PORT || 3000, host: process.env.SERVER_HOST || '0.0.0.0' }, (err, address) => {
-      if (err) {
-        fastify.log.error(err)
-        process.exit(1)
-      }
-      fastify.log.info(`Server listening on ${address}`)
-    }))
-  .catch(console.log)
+    .then(
+        (
+            fastify, // LAUNCH SERVER
+        ) =>
+            fastify.listen(
+                {
+                    port: process.env.SERVER_PORT || 3000,
+                    host: process.env.SERVER_HOST || "0.0.0.0",
+                },
+                (err, address) => {
+                    if (err) {
+                        fastify.log.error(err);
+                        process.exit(1);
+                    }
+                    fastify.log.info(`Server listening on ${address}`);
+                },
+            ),
+    )
+    .catch(console.log);

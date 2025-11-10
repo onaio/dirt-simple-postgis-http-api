@@ -3,6 +3,68 @@ require("dotenv").config()
 
 const sql = (params, query) => {
   return `
+  WITH dataview_filters AS (
+    -- Get dataview query filters if dataview_id is provided
+    SELECT query
+    FROM logger_dataview
+    WHERE id = ${query.dataview_id || 'NULL'}
+      AND deleted_at IS NULL
+  ),
+  relevant_xforms AS (
+    -- Case 1: If dataview_id is provided, get its xform_id
+    SELECT xform_id
+    FROM logger_dataview
+    WHERE id = ${query.dataview_id || 'NULL'}
+      AND deleted_at IS NULL
+
+    UNION
+
+    -- Case 2: If merged_dataset_id is provided, get all constituent xforms
+    SELECT xform_id
+    FROM logger_mergedxform_xforms
+    WHERE mergedxform_id = ${query.merged_dataset_id || 'NULL'}
+
+    UNION
+
+    -- Case 3: If form_id is provided, use it directly
+    SELECT ${query.form_id || 'NULL'} AS xform_id
+    WHERE ${query.form_id || 'NULL'} IS NOT NULL
+  ),
+  filtered_data AS (
+    SELECT
+      i.${process.env.TABLE_COLUMN}
+    FROM
+      ${process.env.TABLE_NAME} i
+    WHERE
+      i.xform_id IN (SELECT xform_id FROM relevant_xforms)
+      AND i.geom is not null
+      AND i.deleted_at is null
+      -- Apply dataview filters if dataview_id was provided
+      AND (
+        ${query.dataview_id || 'NULL'} IS NULL
+        OR NOT EXISTS (
+          SELECT 1
+          FROM dataview_filters df,
+               jsonb_array_elements(df.query) AS filter
+          WHERE NOT (
+            CASE filter->>'filter'
+              WHEN '=' THEN i.json->>(filter->>'column') = filter->>'value'
+              WHEN '>' THEN i.json->>(filter->>'column') > filter->>'value'
+              WHEN '<' THEN i.json->>(filter->>'column') < filter->>'value'
+              WHEN '>=' THEN i.json->>(filter->>'column') >= filter->>'value'
+              WHEN '<=' THEN i.json->>(filter->>'column') <= filter->>'value'
+              WHEN '!=' THEN i.json->>(filter->>'column') != filter->>'value'
+              ELSE false
+            END
+          )
+        )
+      )
+      -- Optional field name/value filter
+      ${query.field_name ? `AND i.json->>'${query.field_name}'='${query.field_value}'` : ''}
+
+    -- Optional row LIMIT
+    ${query.limit ? `LIMIT ${query.limit}` : '' }
+  )
   SELECT
     ST_XMin(bbox) AS xMin,
     ST_YMin(bbox) AS yMin,
@@ -10,14 +72,7 @@ const sql = (params, query) => {
     ST_YMax(bbox) AS yMax
   FROM (
     SELECT ST_Extent(${process.env.TABLE_COLUMN}) AS bbox
-    FROM (
-      SELECT ${process.env.TABLE_COLUMN}
-      FROM ${process.env.TABLE_NAME}
-      WHERE ${`xform_id=${query.form_id} AND geom is not null AND deleted_at is null`}
-
-      -- Optional row LIMIT
-      ${query.limit ? `LIMIT ${query.limit}` : '' }
-    ) As limited_rows
+    FROM filtered_data
   ) AS subquery;
   `
 }
@@ -30,8 +85,24 @@ const schema = {
   summary: 'Return bounds',
   querystring: {
     form_id: {
+      type: 'integer',
+      description: 'ID of a regular form to query data from.',
+    },
+    merged_dataset_id: {
+      type: 'integer',
+      description: 'ID of a merged dataset to query data from all constituent forms.',
+    },
+    dataview_id: {
+      type: 'integer',
+      description: 'ID of a dataview to query data with applied filters.',
+    },
+    field_name: {
       type: 'string',
-      description: 'Form id',
+      description: 'Optional field name for custom JSON filtering.',
+    },
+    field_value: {
+      type: 'string',
+      description: 'Optional field value for custom JSON filtering (used with field_name).',
     },
     limit: {
       type: 'string',
@@ -77,4 +148,4 @@ module.exports = function (fastify, opts, next) {
 }
   
   module.exports.autoPrefix = '/v1'
-  
+  module.exports.sql = sql
