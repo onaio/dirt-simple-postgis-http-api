@@ -31,11 +31,11 @@ async function build() {
         const dataviewId = parsedReqParams.dataview_id;
         const mergedDatasetId = parsedReqParams.merged_dataset_id;
         const tempToken = parsedReqParams.temp_token;
-        let permissionsCheckEndpoint = `${process.env.FORMS_ENDPOINT}${formId}.json`;
+        let permissionsCheckEndpoint = `${process.env.ONADATA_URL}${process.env.FORMS_ENDPOINT}${formId}.json`;
         if (dataviewId !== undefined && dataviewId !== null) {
-            permissionsCheckEndpoint = `${process.env.DATAVIEWS_ENDPOINT}${dataviewId}.json`;
+            permissionsCheckEndpoint = `${process.env.ONADATA_URL}${process.env.DATAVIEWS_ENDPOINT}${dataviewId}.json`;
         } else if (mergedDatasetId !== undefined && mergedDatasetId !== null) {
-            permissionsCheckEndpoint = `${process.env.MERGED_DATASETS_ENDPOINT}${mergedDatasetId}.json`;
+            permissionsCheckEndpoint = `${process.env.ONADATA_URL}${process.env.MERGED_DATASETS_ENDPOINT}${mergedDatasetId}.json`;
         }
         if (permissionsCheckEndpoint) {
             try {
