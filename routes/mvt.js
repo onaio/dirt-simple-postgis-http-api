@@ -37,10 +37,22 @@ const sql = (params, query) => {
         i.geom
       FROM
         ${process.env.TABLE_NAME} i
+        INNER JOIN relevant_xforms xf ON i.xform_id = xf.xform_id
       WHERE
-        i.xform_id IN (SELECT xform_id FROM relevant_xforms)
+        i.deleted_at is null
         AND i.geom is not null
-        AND i.deleted_at is null
+        -- Spatial filter BEFORE transform to use spatial index
+        -- Use && operator for bounding box intersection (uses GIST index)
+        AND i.geom && ST_Transform(
+          ST_TileEnvelope(${params.z}, ${params.x}, ${params.y}),
+          ST_SRID(i.geom)
+        )
+        -- Validate geometry before transformation
+        AND ST_IsValid(i.geom)
+        -- Check coordinate range for Web Mercator compatibility (EPSG:3857)
+        -- Web Mercator valid range: lat between -85.0511 and 85.0511
+        AND ST_Y(ST_Centroid(i.geom)) BETWEEN -85.0511 AND 85.0511
+        AND ST_X(ST_Centroid(i.geom)) BETWEEN -180 AND 180
         -- Apply dataview filters if dataview_id was provided
         AND (
           ${query.dataview_id || 'NULL'} IS NULL
@@ -61,6 +73,8 @@ const sql = (params, query) => {
             )
           )
         )
+        -- Optional field name/value filter
+        ${query.field_name ? `AND i.json->>'${query.field_name}'='${query.field_value}'` : ''}
     ), mvtgeom as (
       SELECT
         ST_AsMVTGeom (geom, ST_TileEnvelope (${params.z}, ${params.x}, ${params.y})) as geom,
@@ -77,21 +91,7 @@ const sql = (params, query) => {
           FROM
             mvtgeom2
         ) transformed_geom
-
-        -- Add where clause only when filtering by bounds
-        ${
-            params.z == 0 && params.x == 0 && params.y == 0
-                ? `
-        WHERE
-          ST_Intersects(
-            ${process.env.TABLE_COLUMN},
-            ST_TileEnvelope(${params.z}, ${params.x}, ${params.y})
-            )`
-                : ``
-        }
-
-          -- Optional Filter
-          ${query.field_name ? `AND json->>'${query.field_name}'='${query.field_value}'` : ``}
+      WHERE geom IS NOT NULL
     )
     SELECT ST_AsMVT(mvtgeom.*, '${process.env.TABLE_NAME}', 4096, 'geom' ${
         query.id_column ? `, '${query.id_column}'` : ""
@@ -193,11 +193,11 @@ module.exports = function (fastify, opts, next) {
                     function onResult(err, result) {
                         release();
                         if (err) {
-                            reply.send(err);
+                            return reply.code(400).send({ error: err.message });
                         } else {
                             const mvt = result.rows[0].mvt;
                             if (mvt.length === 0) {
-                                reply.code(204).send();
+                                return reply.code(204).send();
                             }
                             reply
                                 .header(
