@@ -95,6 +95,20 @@ module.exports = function(fastify, opts, next) {
     url: '/geobuf/:table',
     schema: schema,
     handler: function(request, reply) {
+      let queryAborted = false
+      let pgClient = null
+
+      // Cancel query if client disconnects
+      request.raw.on('close', () => {
+        if (!reply.sent && pgClient) {
+          queryAborted = true
+          request.log.warn('Client disconnected, canceling Geobuf query')
+          pgClient.cancel().catch(err => {
+            request.log.error('Error canceling query:', err)
+          })
+        }
+      })
+
       fastify.pg.connect(onConnect)
 
       function onConnect(err, client, release) {
@@ -103,11 +117,23 @@ module.exports = function(fastify, opts, next) {
           return reply.code(500).send({ error: "Database connection error." })
         }
 
+        pgClient = client
+
+        if (queryAborted) {
+          release()
+          return
+        }
+
         client.query(sql(request.params, request.query), function onResult(
           err,
           result
         ) {
           release()
+
+          if (queryAborted) {
+            return
+          }
+
           if (err) {
             return reply.code(400).send({ error: err.message })
           } else {
