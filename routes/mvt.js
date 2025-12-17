@@ -45,14 +45,8 @@ const sql = (params, query) => {
         -- Use && operator for bounding box intersection (uses GIST index)
         AND i.geom && ST_Transform(
           ST_TileEnvelope(${params.z}, ${params.x}, ${params.y}),
-          ST_SRID(i.geom)
+          4326
         )
-        -- Validate geometry before transformation
-        AND ST_IsValid(i.geom)
-        -- Check coordinate range for Web Mercator compatibility (EPSG:3857)
-        -- Web Mercator valid range: lat between -85.0511 and 85.0511
-        AND ST_Y(ST_Centroid(i.geom)) BETWEEN -85.0511 AND 85.0511
-        AND ST_X(ST_Centroid(i.geom)) BETWEEN -180 AND 180
         -- Apply dataview filters if dataview_id was provided
         AND (
           ${query.dataview_id || 'NULL'} IS NULL
