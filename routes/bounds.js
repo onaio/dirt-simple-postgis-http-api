@@ -39,11 +39,6 @@ const sql = (params, query) => {
     WHERE
       i.deleted_at is null
       AND i.geom is not null
-      -- Validate geometry before processing
-      AND ST_IsValid(i.geom)
-      -- Check coordinate range for valid bounds
-      AND ST_Y(ST_Centroid(i.geom)) BETWEEN -85.0511 AND 85.0511
-      AND ST_X(ST_Centroid(i.geom)) BETWEEN -180 AND 180
       -- Apply dataview filters if dataview_id was provided
       AND (
         ${query.dataview_id || 'NULL'} IS NULL
