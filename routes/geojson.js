@@ -21,11 +21,14 @@ const sql = (params, query) => {
       FROM
         ${params.table},
         (SELECT ST_SRID(${query.geom_column}) AS srid FROM ${params.table} WHERE ${query.geom_column} IS NOT NULL LIMIT 1) a
-      ${query.filter || bounds ? 'WHERE' : ''}
-        ${query.filter ? `${query.filter}` : ''}
-        ${query.filter && bounds ? 'AND' : ''}
+      WHERE
+        ${query.geom_column} IS NOT NULL
+        AND ST_IsValid(${query.geom_column})
+        AND ST_Y(ST_Centroid(${query.geom_column})) BETWEEN -85.0511 AND 85.0511
+        AND ST_X(ST_Centroid(${query.geom_column})) BETWEEN -180 AND 180
+        ${query.filter ? `AND ${query.filter}` : ''}
         ${bounds && bounds.length === 4 ?
-          `${query.geom_column} &&
+          `AND ${query.geom_column} &&
           ST_Transform(
             ST_MakeEnvelope(${bounds.join()}, 4326),
             srid
@@ -34,7 +37,7 @@ const sql = (params, query) => {
           : ''
         }
         ${bounds && bounds.length === 3 ?
-          `${query.geom_column} &&
+          `AND ${query.geom_column} &&
           ST_Transform(
             ST_TileEnvelope(${bounds.join()}),
             srid
@@ -109,16 +112,16 @@ module.exports = function (fastify, opts, next) {
           function onResult(err, result) {
             release()
             if (err) {
-              reply.send(err)
+              return reply.code(400).send({ error: err.message })
             } else {
                 if (result.rows.length === 0) {
-                reply.code(204).send()
+                return reply.code(204).send()
               } else {
                 const json = {
                   type: 'FeatureCollection',
                   features: result.rows.map((el) => el.geojson)
                 }
-                reply.send(json)
+                return reply.send(json)
               }
             }
           }

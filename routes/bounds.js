@@ -35,10 +35,10 @@ const sql = (params, query) => {
       i.${process.env.TABLE_COLUMN}
     FROM
       ${process.env.TABLE_NAME} i
+      INNER JOIN relevant_xforms xf ON i.xform_id = xf.xform_id
     WHERE
-      i.xform_id IN (SELECT xform_id FROM relevant_xforms)
+      i.deleted_at is null
       AND i.geom is not null
-      AND i.deleted_at is null
       -- Apply dataview filters if dataview_id was provided
       AND (
         ${query.dataview_id || 'NULL'} IS NULL
@@ -61,9 +61,6 @@ const sql = (params, query) => {
       )
       -- Optional field name/value filter
       ${query.field_name ? `AND i.json->>'${query.field_name}'='${query.field_value}'` : ''}
-
-    -- Optional row LIMIT
-    ${query.limit ? `LIMIT ${query.limit}` : '' }
   )
   SELECT
     ST_XMin(bbox) AS xMin,
@@ -131,12 +128,12 @@ module.exports = function (fastify, opts, next) {
           function onResult(err, result) {
             release()
             if (err) {
-              reply.code(400).send(err)
+              return reply.code(400).send({ error: err.message })
             } else {
               if(result.rows?.length > 0) {
-                reply.send(result.rows[0])
+                return reply.send(result.rows[0])
               } else {
-                reply.code(404).send({error: 'No data found' });
+                return reply.code(404).send({error: 'No data found' });
               }
             }
           }

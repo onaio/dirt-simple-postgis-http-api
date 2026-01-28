@@ -21,28 +21,31 @@ const sql = (params, query) => {
           : ''
       }
 
-    -- Optional Filter
-    ${query.filter || bounds ? 'WHERE' : ''}
-    ${query.filter ? `${query.filter}` : ''}
-    ${query.filter && bounds ? 'AND' : ''}
-    ${bounds && bounds.length === 4 ?
-      `${query.geom_column} &&
-      ST_Transform(
-        ST_MakeEnvelope(${bounds.join()}, 4326),
-        srid
-      )
-      `
-      : ''
-    }
-    ${bounds && bounds.length === 3 ?
-      `${query.geom_column} &&
-      ST_Transform(
-        ST_TileEnvelope(${bounds.join()}),
-        srid
-      )
-      `
-      : ''
-    }
+    -- Geometry validation and optional filters
+    WHERE
+      ${query.geom_column} IS NOT NULL
+      AND ST_IsValid(${query.geom_column})
+      AND ST_Y(ST_Centroid(${query.geom_column})) BETWEEN -85.0511 AND 85.0511
+      AND ST_X(ST_Centroid(${query.geom_column})) BETWEEN -180 AND 180
+      ${query.filter ? `AND ${query.filter}` : ''}
+      ${bounds && bounds.length === 4 ?
+        `AND ${query.geom_column} &&
+        ST_Transform(
+          ST_MakeEnvelope(${bounds.join()}, 4326),
+          srid
+        )
+        `
+        : ''
+      }
+      ${bounds && bounds.length === 3 ?
+        `AND ${query.geom_column} &&
+        ST_Transform(
+          ST_TileEnvelope(${bounds.join()}),
+          srid
+        )
+        `
+        : ''
+      }
 
   ) as q;
 
@@ -106,12 +109,12 @@ module.exports = function(fastify, opts, next) {
         ) {
           release()
           if (err) {
-            reply.send(err)
+            return reply.code(400).send({ error: err.message })
           } else {
             if (!result.rows[0].st_asgeobuf) {
-              reply.code(204).send()
+              return reply.code(204).send()
             }
-            reply
+            return reply
               .header('Content-Type', 'application/x-protobuf')
               .send(result.rows[0].st_asgeobuf)
           }
