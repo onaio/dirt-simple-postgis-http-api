@@ -62,6 +62,7 @@ This is the complete complete list of environmental variables that can be set.
 | TRUST_PROXY | No | false | Set when dirt runs behind a proxy, so that a caller is identified by the address the proxy forwards rather than the proxy's own. `true`, a number of hops, or a comma-separated list of proxy addresses. See [trustProxy](https://www.fastify.io/docs/latest/Reference/Server/#trustproxy). |
 | POSTGRES_STATEMENT_TIMEOUT | No | undefined | Milliseconds a statement may run before Postgres stops it. No limit when unset. |
 | POSTGRES_CONNECTION_TIMEOUT | No | undefined | Milliseconds a request waits for a database connection before failing. No limit when unset. |
+| POSTGRES_POOL_MAX | No | 10 | Most database connections held at once. Each running statement holds one. |
 | SSL_ROOT_CERT | No | undefined | Contents of a CA certificate for connecting over SSL. Use this if you need to store the entire certificate in an environment variable, e.g. for Docker. |
 | SSL_ROOT_CERT_PATH | No | undefined | Path to a CA certificate file for connecting over SSL. Note that setting `SSL_ROOT_CERT` overrides this. |
 
@@ -178,6 +179,8 @@ The `mvt` route supports different query parameters for accessing different type
 Exactly one of the three must be given; a request naming more than one is refused. The `bounds` route takes the same parameters.
 
 Add `temp_token` to read a dataset that is not public.
+
+A statement is stopped when the caller that asked for it goes away, as a map does each time it is panned or zoomed.
 
 ### Changes require a Restart
 
