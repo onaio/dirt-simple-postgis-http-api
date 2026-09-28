@@ -26,7 +26,7 @@ npm install
 
 ### Step 2: add your configuration
 
-Dirt is configured via environmental variables. These variables can be placed in a `.env` file in the project's root folder, via the command line at run time, or however you set environmental variables on your operating system. The only environmental variable that must be set is `POSTGRES_CONNECTION`, which contains your postgres login information.
+Dirt is configured via environmental variables. These variables can be placed in a `.env` file in the project's root folder, via the command line at run time, or however you set environmental variables on your operating system. Dirt refuses to start when a required variable is missing.
 
 #### `.env` file
 ```env
@@ -43,6 +43,13 @@ This is the complete complete list of environmental variables that can be set.
 | Variable | Required | Default | Description |
 | ----------- | ----------- | ----------- | ----------- |
 | POSTGRES_CONNECTION | Yes | N/A | Postgres connection string |
+| TABLE_NAME | Yes | N/A | Table holding the submissions, optionally schema-qualified, ex: `logger_instance` |
+| TABLE_COLUMN | Yes | N/A | Geometry column of that table, ex: `geom` |
+| ONADATA_URL | Yes | N/A | Base URL of the API that decides whether a caller may read a dataset, ex: `https://api.ona.io` |
+| FORMS_ENDPOINT | Yes | N/A | Path checked for `form_id`, ex: `/api/v1/forms/` |
+| DATAVIEWS_ENDPOINT | Yes | N/A | Path checked for `dataview_id`, ex: `/api/v1/dataviews/` |
+| MERGED_DATASETS_ENDPOINT | Yes | N/A | Path checked for `merged_dataset_id`, ex: `/api/v1/merged-datasets/` |
+| CORS_ORIGINS | No | undefined | Comma-separated origins allowed to call the API, or `*` for any. No origin is allowed when unset. |
 | SERVER_LOGGER | No | undefined | Turn on Fastify's [error logger](https://www.fastify.io/docs/latest/Reference/Logging/). Options are `true` (same as `info`), `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent`.  |
 | SERVER_LOGGER_PATH | No | undefined | Log to file instead of console, ex: `/path/to/file`  |
 | SERVER_HOST | No | 0.0.0.0 | IP to [listen](https://www.fastify.io/docs/latest/Reference/Server/#listen) on, default is all |
@@ -51,7 +58,10 @@ This is the complete complete list of environmental variables that can be set.
 | CACHE_PRIVACY | No | private | [Cache response directive](https://github.com/fastify/fastify-caching) |
 | CACHE_EXPIRESIN | No | 3600 | [Max age in seconds](https://github.com/fastify/fastify-caching) |
 | CACHE_SERVERCACHE | No | undefined | Max age in seconds for [shared cache](https://github.com/fastify/fastify-caching) (i.e. CDN) |
-| RATE_MAX | No | undefined | Requests per minute [rate limiter](https://github.com/fastify/fastify-rate-limit) (limiter not used if RATE_LIMIT not set)  |
+| RATE_MAX | No | undefined | Requests allowed per minute per caller by the [rate limiter](https://github.com/fastify/fastify-rate-limit). The limiter is off when unset. |
+| TRUST_PROXY | No | false | Set when dirt runs behind a proxy, so that a caller is identified by the address the proxy forwards rather than the proxy's own. `true`, a number of hops, or a comma-separated list of proxy addresses. See [trustProxy](https://www.fastify.io/docs/latest/Reference/Server/#trustproxy). |
+| POSTGRES_STATEMENT_TIMEOUT | No | undefined | Milliseconds a statement may run before Postgres stops it. No limit when unset. |
+| POSTGRES_CONNECTION_TIMEOUT | No | undefined | Milliseconds a request waits for a database connection before failing. No limit when unset. |
 | SSL_ROOT_CERT | No | undefined | Contents of a CA certificate for connecting over SSL. Use this if you need to store the entire certificate in an environment variable, e.g. for Docker. |
 | SSL_ROOT_CERT_PATH | No | undefined | Path to a CA certificate file for connecting over SSL. Note that setting `SSL_ROOT_CERT` overrides this. |
 
@@ -62,7 +72,21 @@ This is the complete complete list of environmental variables that can be set.
 npm start
 ```
 
-To view interactive documentation, head to [http://127.0.0.1:3000/](http://127.0.0.1:3000/).
+### Running the tests
+
+```bash
+npm test
+```
+
+The tests that run statements need a PostGIS database they are free to drop and recreate tables in. They are skipped unless `TEST_POSTGRES_CONNECTION` is set, and refuse to run against a database whose name does not end in `_test`.
+
+```bash
+docker run -d --rm --name dirt-test-postgis \
+  -e POSTGRES_USER=dirt -e POSTGRES_PASS=dirt -e POSTGRES_DBNAME=dirt_test \
+  -p 127.0.0.1:55432:5432 kartoza/postgis:17-3.5
+
+TEST_POSTGRES_CONNECTION="postgres://dirt:dirt@127.0.0.1:55432/dirt_test" npm test
+```
 
 ### Running via Docker
 
@@ -75,8 +99,10 @@ docker build -t dirt .
 To run the Docker image:
 
 ```
-docker run -dp 3000:3000 -e POSTGRES_CONNECTION=<connection string> dirt
+docker run -dp 3000:3000 --env-file .env dirt
 ```
+
+The file holds the variables listed above, one `NAME=value` per line.
 
 ## Architecture
 
@@ -102,19 +128,15 @@ All routes are stored in the `routes` folder and are automatically loaded on sta
 
 ### Database
 
-Your Postgres login will need select rights to any tables or views it should be able to access. That includes the `geometry_columns` view for the `list_layers` end point to work.
+Your Postgres login needs select rights on the submissions table, `logger_dataview` and `logger_mergedxform_xforms`.
 
-For security, it should _only_ have select rights unless you plan to specifically add a route that writes to a table.
+For security, it should have select rights on those tables _only_.
 
 Dirt uses connection pooling, minimizing database connections.
 
-### SQL Functions
-
-If a query parameter looks like it should be able to handle SQL functions, it probably can. For example, the `columns` parameter for most queries can use the `count(*)` function. You can use any function in the database, including user defined functions.
-
 ### Mapbox vector tiles
 
-The `mvt` route serves Mapbox Vector Tiles. The layer name in the returned protobuf will be the same as the table name passed as input. Here's an example of using both `geojson` and `mvt` routes with MapLibre GL JS.
+The `mvt` route serves Mapbox Vector Tiles. The layer name in the returned protobuf is the value of `TABLE_NAME`. Here's an example with MapLibre GL JS.
 
 ```javascript
 map.on('load', function() {
@@ -122,28 +144,12 @@ map.on('load', function() {
     id: 'dirt-mvt',
     source: {
       type: 'vector',
-      tiles: ['http://localhost:3000/v1/mvt/voter_precinct/{z}/{x}/{y}'],
-      maxzoom: 14,
-      minzoom: 5
+      tiles: ['http://localhost:3000/v1/mvt/{z}/{x}/{y}?form_id=842230']
     },
-    'source-layer': 'voter_precinct',
-    type: 'fill',
-    minzoom: 5,
-    paint: {
-      'fill-color': '#088',
-      'fill-outline-color': '#333'
-    }
-  })
-
-  map.addLayer({
-    id: 'dirt-geojson',
+    'source-layer': 'logger_instance',
     type: 'circle',
-    source: {
-      type: 'geojson',
-      data: 'http://localhost:3000/v1/geojson/voter_polling_location'
-    },
     paint: {
-      'circle-radius': 2,
+      'circle-radius': 4,
       'circle-color': '#bada55'
     }
   })
@@ -169,6 +175,10 @@ The `mvt` route supports different query parameters for accessing different type
   /v1/mvt/{z}/{x}/{y}?dataview_id=12345
   ```
 
+Exactly one of the three must be given; a request naming more than one is refused. The `bounds` route takes the same parameters.
+
+Add `temp_token` to read a dataset that is not public.
+
 ### Changes require a Restart
 
 If you modify code or add a route, dirt will not see it until dirt is restarted.
@@ -186,7 +196,7 @@ you may need to connect to your server over SSL. Obtain a CA certificate and set
 If you're running Dirt on Docker, it may be easier to pass the contents of the certificate with `SSL_ROOT_CERT`. Example:
 
 ```bash
-docker run -dp 3000:3000 -e POSTGRES_CONNECTION=<connection string> -e SSL_ROOT_CERT=$(cat ca.crt) dirt
+docker run -dp 3000:3000 --env-file .env -e SSL_ROOT_CERT="$(cat ca.crt)" dirt
 ```
 
 If you can't get a certificate or want to bypass the error, you can try setting `NODE_TLS_REJECT_UNAUTHORIZED=0`. Note that this is unsafe and is not recommended in production.
