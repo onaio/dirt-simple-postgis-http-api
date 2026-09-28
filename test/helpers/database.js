@@ -8,6 +8,7 @@ const MERGED_MEMBER_FORM = 3;
 const PARTIAL_FORM = 4;
 const EDGE_FORM = 5;
 const GRADED_FORM = 6;
+const TYPED_FORM = 7;
 const MERGED_DATASET = 50;
 const APPROVED_DATAVIEW = 10;
 const DELETED_DATAVIEW = 11;
@@ -33,13 +34,34 @@ const EDGE_TILE = "/v1/mvt/12/2466/2062";
 const INSIDE_EDGE_TILE = { id: 501, lng: 36.8, lat: -1.3 };
 const JUST_OUTSIDE_EDGE_TILE = { id: 502, lng: 36.828, lat: -1.3 };
 
+const survey = (children) => ({ name: "data", type: "survey", children });
+const field = (name, type = "text") => ({ name, type });
+const group = (name, children) => ({ name, type: "group", children });
+
+const DEFINITIONS = [
+    [OWN_FORM, survey([field("status"), field("name")])],
+    [OTHER_FORM, survey([field("status"), field("name")])],
+    [MERGED_MEMBER_FORM, survey([field("status"), field("name")])],
+    [PARTIAL_FORM, survey([field("status"), field("name")])],
+    [EDGE_FORM, survey([field("name")])],
+    [
+        GRADED_FORM,
+        survey([
+            field("grade"),
+            field("site"),
+            field("score", "integer"),
+            field("passed"),
+        ]),
+    ],
+];
+
 const SCHEMA = `
     CREATE EXTENSION IF NOT EXISTS postgis;
     DROP VIEW IF EXISTS slow_instance, brief_instance, counted_instance;
     DROP SEQUENCE IF EXISTS statements_started;
     DROP TABLE IF EXISTS
-        logger_instance, logger_dataview, logger_mergedxform_xforms, private_notes,
-        shaped_instance, partitioned_instance CASCADE;
+        logger_instance, logger_dataview, logger_mergedxform_xforms, logger_xform,
+        private_notes, shaped_instance, partitioned_instance CASCADE;
     CREATE TABLE logger_instance (
         id integer PRIMARY KEY,
         xform_id integer NOT NULL,
@@ -58,6 +80,7 @@ const SCHEMA = `
         mergedxform_id integer NOT NULL,
         xform_id integer NOT NULL
     );
+    CREATE TABLE logger_xform (id integer PRIMARY KEY, json jsonb NOT NULL DEFAULT '{}');
     CREATE TABLE private_notes (id integer PRIMARY KEY, body text NOT NULL);
 `;
 
@@ -111,10 +134,17 @@ const withPool = async (run) => {
     }
 };
 
+const DEFINE = `
+    INSERT INTO logger_xform (id, json) VALUES ($1, $2)
+    ON CONFLICT (id) DO UPDATE SET json = excluded.json`;
+
 const resetDatabase = () =>
     withPool(async (pool) => {
         await pool.query(SCHEMA);
         await pool.query(SEED);
+        for (const [id, definition] of DEFINITIONS) {
+            await pool.query(DEFINE, [id, JSON.stringify(definition)]);
+        }
     });
 
 const run = (text, values) => withPool((pool) => pool.query(text, values));
@@ -126,17 +156,27 @@ const createDataview = (id, xformId, filters) =>
         JSON.stringify(filters),
     ]);
 
+// The definition is stored as it is given: an object as an object, and text
+// as a string holding the definition.
+const defineForm = (id, definition) =>
+    run(DEFINE, [id, JSON.stringify(definition)]);
+
 module.exports = {
     connectionString,
     resetDatabase,
     run,
     createDataview,
+    defineForm,
+    survey,
+    field,
+    group,
     OWN_FORM,
     OTHER_FORM,
     MERGED_MEMBER_FORM,
     PARTIAL_FORM,
     EDGE_FORM,
     GRADED_FORM,
+    TYPED_FORM,
     MERGED_DATASET,
     APPROVED_DATAVIEW,
     DELETED_DATAVIEW,

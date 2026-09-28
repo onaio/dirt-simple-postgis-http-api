@@ -414,6 +414,18 @@ describe("mvt route on a partitioned table against PostGIS", { skip }, () => {
         );
     });
 
+    test("reads only the partition of a dataview's form when its filters are cast", async () => {
+        await database.createDataview(60, GRADED_FORM, [
+            { column: "score", filter: ">", value: "5" },
+            { column: "score", filter: "<", value: "5", condition: "or" },
+            { column: "_submission_time", filter: ">", value: "2024-01-01", condition: "or" },
+        ]);
+
+        assert.deepEqual(await partitionsRead({ dataview_id: 60 }), [
+            "partitioned_instance_graded",
+        ]);
+    });
+
     test("reads only the partitions of a merged dataset's forms", async () => {
         assert.deepEqual(
             await partitionsRead({ merged_dataset_id: MERGED_DATASET }),
