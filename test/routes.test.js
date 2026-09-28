@@ -129,6 +129,18 @@ describe("database connection", () => {
         assert.equal(options.connectionTimeoutMillis, undefined);
     });
 
+    test("keeps the default number of connections unless configured", async () => {
+        const options = await poolOptions({});
+
+        assert.equal(options.max, 10);
+    });
+
+    test("holds as many connections as configured", async () => {
+        const options = await poolOptions({ POSTGRES_POOL_MAX: "20" });
+
+        assert.equal(options.max, 20);
+    });
+
     test("limits how long a statement may run", async () => {
         const options = await poolOptions({
             POSTGRES_STATEMENT_TIMEOUT: "30000",
@@ -148,6 +160,7 @@ describe("database connection", () => {
     for (const name of [
         "POSTGRES_STATEMENT_TIMEOUT",
         "POSTGRES_CONNECTION_TIMEOUT",
+        "POSTGRES_POOL_MAX",
     ]) {
         for (const value of ["abc", "0", "-1", "1.5", "", "30s"]) {
             test(`build refuses to start with ${name} set to ${JSON.stringify(value)}`, async () => {
