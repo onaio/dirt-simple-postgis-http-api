@@ -8,7 +8,7 @@ const {
     trustedProxy,
     swaggerOptions,
 } = require("./lib/configuration");
-const { InvalidRequestError } = require("./lib/errors");
+const { InvalidRequestError, ServiceError } = require("./lib/errors");
 const { loggerOptions } = require("./lib/logging");
 const { createPermissionCheck, isPublicRoute } = require("./lib/permissions");
 
@@ -22,6 +22,10 @@ const hasOwnMessage = (error) =>
 
 const handleError = (error, request, reply) => {
     const isClientError = error.statusCode >= 400 && error.statusCode < 500;
+    if (error instanceof ServiceError) {
+        request.log.error(error.cause);
+        return reply.code(500).send({ error: error.message });
+    }
     if (!isClientError) {
         request.log.error(error);
         return reply.code(500).send({ error: "Internal server error." });
@@ -39,6 +43,7 @@ const handleNotFound = (request, reply) =>
 async function build(env) {
     checkConfiguration(env);
     const rateLimit = requestsPerMinute(env);
+    const permissionCheck = createPermissionCheck(env);
 
     const fastify = require("fastify")({
         logger: loggerOptions(env),
@@ -70,7 +75,7 @@ async function build(env) {
         if (rateLimit !== null) {
             fastify.addHook("onRequest", fastify.rateLimit());
         }
-        fastify.addHook("onRequest", createPermissionCheck(env));
+        fastify.addHook("onRequest", permissionCheck);
     });
 
     fastify.register(require("@fastify/postgres"), postgresOptions(env));

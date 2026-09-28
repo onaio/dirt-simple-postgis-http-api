@@ -35,9 +35,11 @@ const JUST_OUTSIDE_EDGE_TILE = { id: 502, lng: 36.828, lat: -1.3 };
 
 const SCHEMA = `
     CREATE EXTENSION IF NOT EXISTS postgis;
+    DROP VIEW IF EXISTS slow_instance, brief_instance, counted_instance;
+    DROP SEQUENCE IF EXISTS statements_started;
     DROP TABLE IF EXISTS
         logger_instance, logger_dataview, logger_mergedxform_xforms, private_notes,
-        shaped_instance;
+        shaped_instance, partitioned_instance CASCADE;
     CREATE TABLE logger_instance (
         id integer PRIMARY KEY,
         xform_id integer NOT NULL,

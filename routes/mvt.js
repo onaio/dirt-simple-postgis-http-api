@@ -1,5 +1,6 @@
 const { InvalidRequestError } = require("../lib/errors");
 const { parseDataset } = require("../lib/dataset");
+const { readSubmissions } = require("../lib/reading");
 const {
     statement,
     identifier,
@@ -9,8 +10,7 @@ const {
 } = require("../lib/statement");
 const {
     parseFieldFilter,
-    datasetTables,
-    datasetConditions,
+    submissionConditions,
 } = require("../lib/submissions");
 
 // Keeps x and y within a 32-bit integer.
@@ -64,15 +64,16 @@ const parseIdColumn = (idColumn) => {
     return normalize(idColumn);
 };
 
-const sql = (params, query, config) => {
-    const tile = parseTile(params);
-    const dataset = parseDataset(query);
-    const fieldFilter = parseFieldFilter(query);
-    const idColumn = parseIdColumn(query.id_column);
-    const selected = [
-        ...parseColumns(query.columns),
-        ...(idColumn === null ? [] : [idColumn]),
-    ];
+const parse = (params, query) => ({
+    tile: parseTile(params),
+    dataset: parseDataset(query),
+    fieldFilter: parseFieldFilter(query),
+    columns: parseColumns(query.columns),
+    idColumn: parseIdColumn(query.id_column),
+});
+
+const sql = ({ tile, fieldFilter, columns, idColumn }, resolved, config) => {
+    const selected = [...columns, ...(idColumn === null ? [] : [idColumn])];
 
     const envelope = statement`ST_TileEnvelope(${tile.z}::int4, ${tile.x}::int4, ${tile.y}::int4)`;
     const selectedColumns = concat(
@@ -82,22 +83,19 @@ const sql = (params, query, config) => {
         idColumn === null ? statement`` : statement`, ${idColumn}::text`;
 
     return render(statement`
-    WITH ${datasetTables(dataset)},
-    mvtgeom2 as (
+    WITH mvtgeom2 as (
       SELECT
         i.id,
         i.json,
         i.geom
       FROM
         ${qualifiedName(config.tableName)} i
-        INNER JOIN relevant_xforms xf ON i.xform_id = xf.xform_id
       WHERE
-        i.deleted_at is null
+        ${submissionConditions(resolved, fieldFilter)}
         AND i.geom is not null
         -- Spatial filter BEFORE transform to use spatial index
         -- Use && operator for bounding box intersection (uses GIST index)
         AND i.geom && ST_Transform(${envelope}, 4326)
-        ${datasetConditions(dataset, fieldFilter)}
     ), mvtgeom as (
       SELECT
         ST_AsMVTGeom (geom, ${envelope}) as geom,
@@ -180,46 +178,35 @@ const schema = {
     },
 };
 
+const isEmpty = (rows) => rows.length === 0 || rows[0].mvt.length === 0;
+
 // create route
 module.exports = function (fastify, opts, next) {
     fastify.route({
         method: "GET",
         url: "/mvt/:z/:x/:y",
         schema: schema,
-        handler: function (request, reply) {
-            const { text, values } = sql(request.params, request.query, opts);
+        handler: async function (request, reply) {
+            const tileRequest = parse(request.params, request.query);
 
-            fastify.pg.connect(onConnect);
-
-            function onConnect(err, client, release) {
-                if (err) {
-                    request.log.error(err);
-                    return reply
-                        .code(500)
-                        .send({ error: "Database connection error." });
-                }
-
-                client.query(text, values, function onResult(err, result) {
-                    release();
-                    if (err) {
-                        request.log.error(err);
-                        return reply
-                            .code(500)
-                            .send({ error: "Query failed." });
-                    }
-                    const mvt = result.rows[0].mvt;
-                    if (mvt.length === 0) {
-                        return reply.code(204).send();
-                    }
-                    return reply
-                        .header("Content-Type", "application/x-protobuf")
-                        .send(mvt);
-                });
+            const rows = await readSubmissions({
+                pg: fastify.pg,
+                request,
+                reply,
+                dataset: tileRequest.dataset,
+                build: (resolved) => sql(tileRequest, resolved, opts),
+            });
+            if (isEmpty(rows)) {
+                return reply.code(204).send();
             }
+            return reply
+                .header("Content-Type", "application/x-protobuf")
+                .send(rows[0].mvt);
         },
     });
     next();
 };
 
 module.exports.autoPrefix = "/v1";
+module.exports.parse = parse;
 module.exports.sql = sql;

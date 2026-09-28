@@ -1,6 +1,8 @@
 const { describe, test, before } = require("node:test");
 const assert = require("node:assert/strict");
 
+const { parse, sql } = require("../routes/mvt");
+const { datasetLookup, readDataset } = require("../lib/submissions");
 const { withApp, query } = require("./helpers/app");
 const database = require("./helpers/database");
 const {
@@ -14,6 +16,7 @@ const {
 const {
     OWN_FORM,
     OTHER_FORM,
+    MERGED_MEMBER_FORM,
     MERGED_DATASET,
     APPROVED_DATAVIEW,
     DELETED_DATAVIEW,
@@ -292,10 +295,28 @@ describe("mvt route dataview operators against PostGIS", { skip }, () => {
         [29, [grade("LIKE", "%")], []],
         [30, [{ column: "grade", value: "b" }], []],
         [31, [grade("=", "b"), grade("unknown", "b")], []],
+        [32, {}, [GRADE_A.id, GRADE_B.id, GRADE_C.id]],
+        [33, [], [GRADE_A.id, GRADE_B.id, GRADE_C.id]],
+        [34, grade("=", "b"), []],
+        [35, "grade = b", []],
+        [36, ["grade = b"], []],
+        [37, [grade("=", "b"), "grade = b"], []],
+        [38, null, []],
+        [39, [{ column: "score", filter: "=", value: 5 }], [GRADE_A.id, GRADE_B.id]],
+        [40, [{ column: "score", filter: "=", value: "5" }], [GRADE_A.id, GRADE_B.id]],
+        [41, [{ column: "passed", filter: "=", value: true }], [GRADE_C.id]],
     ];
 
     before(async () => {
         await database.resetDatabase();
+        await database.run(`
+            UPDATE logger_instance SET json = json || CASE id
+                WHEN ${GRADE_A.id} THEN '{"score": "5"}'::jsonb
+                WHEN ${GRADE_B.id} THEN '{"score": 5}'::jsonb
+                ELSE '{"score": "10", "passed": true}'::jsonb
+            END
+            WHERE xform_id = ${GRADED_FORM}
+        `);
         for (const [id, filters] of dataviews) {
             await database.createDataview(id, GRADED_FORM, filters);
         }
@@ -318,6 +339,93 @@ describe("mvt route dataview operators against PostGIS", { skip }, () => {
             assert.deepEqual(tileIds(response), expected);
         });
     }
+});
+
+describe("mvt route on a partitioned table against PostGIS", { skip }, () => {
+    const partitioned = { TABLE_NAME: "partitioned_instance" };
+    const config = { tableName: "partitioned_instance", geomColumn: "geom" };
+
+    const relations = (node) => [
+        ...(node["Relation Name"] ? [node["Relation Name"]] : []),
+        ...(node.Plans || []).flatMap(relations),
+    ];
+
+    const partitionsRead = async (query) => {
+        const request = parse({ z: 0, x: 0, y: 0 }, query);
+        const lookup = datasetLookup(request.dataset);
+        const found = lookup === null ? [] : (await database.run(lookup.text, lookup.values)).rows;
+        const { text, values } = sql(request, readDataset(request.dataset, found), config);
+        const { rows } = await database.run(
+            `EXPLAIN (FORMAT JSON) ${text.replace(/;\s*$/, "")}`,
+            values,
+        );
+
+        return [...new Set(relations(rows[0]["QUERY PLAN"][0].Plan))].sort();
+    };
+
+    before(async () => {
+        await database.resetDatabase();
+        await database.run(`
+            CREATE TABLE partitioned_instance (
+                LIKE logger_instance INCLUDING DEFAULTS
+            ) PARTITION BY LIST (xform_id);
+            CREATE TABLE partitioned_instance_own
+                PARTITION OF partitioned_instance FOR VALUES IN (${OWN_FORM});
+            CREATE TABLE partitioned_instance_member
+                PARTITION OF partitioned_instance FOR VALUES IN (${MERGED_MEMBER_FORM});
+            CREATE TABLE partitioned_instance_graded
+                PARTITION OF partitioned_instance FOR VALUES IN (${GRADED_FORM});
+            CREATE TABLE partitioned_instance_others
+                PARTITION OF partitioned_instance DEFAULT;
+            INSERT INTO partitioned_instance SELECT * FROM logger_instance;
+            CREATE INDEX ON partitioned_instance USING gist (geom);
+            ANALYZE partitioned_instance;
+        `);
+    });
+
+    test("serves the same tile as the table it was copied from", async () => {
+        for (const parameters of [
+            { form_id: OWN_FORM },
+            { merged_dataset_id: MERGED_DATASET },
+            { dataview_id: APPROVED_DATAVIEW },
+            { form_id: OTHER_FORM },
+        ]) {
+            const plain = await fetchTile(parameters);
+            const split = await fetchTile(parameters, WORLD_TILE, partitioned);
+
+            assert.deepEqual(
+                tileProperties(split, "partitioned_instance"),
+                tileProperties(plain),
+                JSON.stringify(parameters),
+            );
+        }
+    });
+
+    test("reads only the partition of the requested form", async () => {
+        assert.deepEqual(await partitionsRead({ form_id: OWN_FORM }), [
+            "partitioned_instance_own",
+        ]);
+    });
+
+    test("reads only the partition of a dataview's form", async () => {
+        assert.deepEqual(
+            await partitionsRead({ dataview_id: APPROVED_DATAVIEW }),
+            ["partitioned_instance_own"],
+        );
+    });
+
+    test("reads only the partitions of a merged dataset's forms", async () => {
+        assert.deepEqual(
+            await partitionsRead({ merged_dataset_id: MERGED_DATASET }),
+            ["partitioned_instance_member", "partitioned_instance_own"],
+        );
+    });
+
+    test("reads the catch-all partition for a form without one of its own", async () => {
+        assert.deepEqual(await partitionsRead({ form_id: OTHER_FORM }), [
+            "partitioned_instance_others",
+        ]);
+    });
 });
 
 describe("mvt route access control against PostGIS", { skip }, () => {

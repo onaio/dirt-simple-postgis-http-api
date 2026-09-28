@@ -1,155 +1,52 @@
 const { describe, test } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { sql } = require("../routes/mvt");
+const { parse, sql } = require("../routes/mvt");
 const { placeholders, expectedPlaceholders } = require("./helpers/statements");
 
 const config = { tableName: "logger_instance", geomColumn: "geom" };
 const tile = { z: 10, x: 512, y: 511 };
+const oneForm = { xformIds: [1], filters: [] };
 const isBadRequest = (error) => error.statusCode === 400;
 
-describe("mvt statement", () => {
-    test("binds the form id and tile coordinates instead of inlining them", () => {
-        const { text, values } = sql(tile, { form_id: 842230 }, config);
+const build = (params, query, resolved = oneForm, settings = config) =>
+    sql(parse(params, query), resolved, settings);
 
-        assert.doesNotMatch(text, /842230|512|511/);
-        for (const value of [842230, 10, 512, 511]) {
-            assert.ok(values.includes(value), `missing ${value}`);
-        }
-    });
+describe("mvt request", () => {
+    test("names the dataset, the tile and the optional parts", () => {
+        const request = parse(tile, {
+            dataview_id: 8,
+            field_name: "status",
+            field_value: "approved",
+            columns: "ID, json",
+            id_column: "Id",
+        });
 
-    test("binds the merged dataset id", () => {
-        const { text, values } = sql(
+        assert.deepEqual(request, {
             tile,
-            { merged_dataset_id: 852601 },
-            config,
-        );
-
-        assert.doesNotMatch(text, /852601/);
-        assert.ok(values.includes(852601));
+            dataset: { formId: null, dataviewId: 8, mergedDatasetId: null },
+            fieldFilter: { name: "status", value: "approved" },
+            columns: ["id", "json"],
+            idColumn: "id",
+        });
     });
 
-    test("binds the dataview id", () => {
-        const { text, values } = sql(tile, { dataview_id: 12345 }, config);
+    test("leaves the optional parts empty when they are not given", () => {
+        const request = parse(tile, { form_id: 1 });
 
-        assert.doesNotMatch(text, /12345/);
-        assert.ok(values.includes(12345));
-    });
-
-    test("binds the field filter name and value", () => {
-        const { text, values } = sql(
-            tile,
-            { form_id: 1, field_name: "status", field_value: "approved" },
-            config,
-        );
-
-        assert.doesNotMatch(text, /status|approved/);
-        assert.ok(values.includes("status"));
-        assert.ok(values.includes("approved"));
-    });
-
-    test("keeps hostile field filter text out of the statement", () => {
-        const hostile = "x' UNION SELECT 1, to_jsonb(p), geom FROM private_notes p --";
-
-        const { text, values } = sql(
-            tile,
-            { form_id: 1, field_name: hostile, field_value: hostile },
-            config,
-        );
-
-        assert.doesNotMatch(text, /private_notes|to_jsonb/);
-        assert.equal(values.filter((value) => value === hostile).length, 2);
-    });
-
-    test("omits the field filter when no field name is given", () => {
-        const { text } = sql(tile, { form_id: 1 }, config);
-        const filtered = sql(
-            tile,
-            { form_id: 1, field_name: "status", field_value: "approved" },
-            config,
-        ).text;
-
-        assert.notEqual(text, filtered);
+        assert.equal(request.fieldFilter, null);
+        assert.deepEqual(request.columns, []);
+        assert.equal(request.idColumn, null);
     });
 
     test("ignores a field value given without a field name", () => {
-        const unfiltered = sql(tile, { form_id: 1 }, config);
-        const valueOnly = sql(tile, { form_id: 1, field_value: "x" }, config);
-        const emptyName = sql(
-            tile,
-            { form_id: 1, field_name: "", field_value: "x" },
-            config,
+        const unfiltered = parse(tile, { form_id: 1 });
+
+        assert.deepEqual(parse(tile, { form_id: 1, field_value: "x" }), unfiltered);
+        assert.deepEqual(
+            parse(tile, { form_id: 1, field_name: "", field_value: "x" }),
+            unfiltered,
         );
-
-        assert.deepEqual(valueOnly, unfiltered);
-        assert.deepEqual(emptyName, unfiltered);
-    });
-
-    for (const query of [
-        { form_id: 1 },
-        { dataview_id: 1 },
-        { merged_dataset_id: 1 },
-        { form_id: 1, field_name: "a", field_value: "b" },
-        { form_id: 1, id_column: "id" },
-        { form_id: 1, columns: "id, json" },
-        {
-            form_id: 1,
-            field_name: "a",
-            field_value: "b",
-            id_column: "id",
-            columns: "json",
-        },
-    ]) {
-        test(`supplies one value per placeholder for ${JSON.stringify(query)}`, () => {
-            const { text, values } = sql(tile, query, config);
-
-            assert.deepEqual(placeholders(text), expectedPlaceholders(values));
-        });
-    }
-
-    test("quotes the table name", () => {
-        const { text } = sql(tile, { form_id: 1 }, config);
-
-        assert.match(text, /"logger_instance" i\b/);
-    });
-
-    test("names the layer after the table through a bound value", () => {
-        const { values } = sql(
-            tile,
-            { form_id: 1 },
-            { ...config, tableName: "public.logger_instance" },
-        );
-
-        assert.ok(values.includes("public.logger_instance"));
-    });
-
-    test("quotes a requested id column", () => {
-        const { text, values } = sql(
-            tile,
-            { form_id: 1, id_column: "id" },
-            config,
-        );
-
-        assert.match(text, /"id"/);
-        assert.ok(values.includes("id"));
-    });
-
-    test("quotes each requested column", () => {
-        const { text } = sql(tile, { form_id: 1, columns: "id, json" }, config);
-
-        assert.match(text, /, "id", "json"/);
-    });
-
-    test("reads requested column names without regard to case", () => {
-        const { text, values } = sql(
-            tile,
-            { form_id: 1, columns: "ID,Json", id_column: "Id" },
-            config,
-        );
-
-        assert.match(text, /, "id", "json", "id"/);
-        assert.ok(values.includes("id"));
-        assert.ok(!values.includes("Id"));
     });
 
     const invalid = [
@@ -180,7 +77,7 @@ describe("mvt statement", () => {
 
     for (const [label, query] of invalid) {
         test(`rejects ${label} as a bad request`, () => {
-            assert.throws(() => sql(tile, query, config), isBadRequest);
+            assert.throws(() => parse(tile, query), isBadRequest);
         });
     }
 
@@ -197,27 +94,147 @@ describe("mvt statement", () => {
 
     for (const [label, params] of invalidTiles) {
         test(`rejects ${label} as a bad request`, () => {
-            assert.throws(
-                () => sql(params, { form_id: 1 }, config),
-                isBadRequest,
-            );
+            assert.throws(() => parse(params, { form_id: 1 }), isBadRequest);
         });
     }
 
     test("accepts the last tile of a zoom level", () => {
-        assert.doesNotThrow(() =>
-            sql({ z: 2, x: 3, y: 3 }, { form_id: 1 }, config),
+        assert.doesNotThrow(() => parse({ z: 2, x: 3, y: 3 }, { form_id: 1 }));
+    });
+});
+
+describe("mvt statement", () => {
+    test("binds the forms and tile coordinates instead of inlining them", () => {
+        const { text, values } = build(
+            tile,
+            { form_id: 842230 },
+            { xformIds: [842230, 842231], filters: [] },
         );
+
+        assert.doesNotMatch(text, /842230|842231|512|511/);
+        assert.deepEqual(values[0], [842230, 842231]);
+        for (const value of [10, 512, 511]) {
+            assert.ok(values.includes(value), `missing ${value}`);
+        }
+    });
+
+    test("reads the submissions table only", () => {
+        const { text } = build(tile, { dataview_id: 8 });
+
+        assert.doesNotMatch(text, /logger_dataview|logger_mergedxform_xforms/);
+    });
+
+    test("applies the dataview filters it is given", () => {
+        const filters = [{ column: "status", filter: "=", value: "approved" }];
+
+        const { values } = build(
+            tile,
+            { dataview_id: 8 },
+            { xformIds: [5], filters },
+        );
+
+        assert.ok(values.includes("status"));
+        assert.ok(values.includes("approved"));
+    });
+
+    test("binds the field filter name and value", () => {
+        const { text, values } = build(tile, {
+            form_id: 1,
+            field_name: "status",
+            field_value: "approved",
+        });
+
+        assert.doesNotMatch(text, /status|approved/);
+        assert.ok(values.includes("status"));
+        assert.ok(values.includes("approved"));
+    });
+
+    test("keeps hostile field filter text out of the statement", () => {
+        const hostile = "x' UNION SELECT 1, to_jsonb(p), geom FROM private_notes p --";
+
+        const { text, values } = build(tile, {
+            form_id: 1,
+            field_name: hostile,
+            field_value: hostile,
+        });
+
+        assert.doesNotMatch(text, /private_notes|to_jsonb/);
+        assert.equal(values.filter((value) => value === hostile).length, 2);
+    });
+
+    test("omits the field filter when no field name is given", () => {
+        const plain = build(tile, { form_id: 1 });
+        const filtered = build(tile, {
+            form_id: 1,
+            field_name: "status",
+            field_value: "approved",
+        });
+
+        assert.equal(filtered.values.length, plain.values.length + 2);
+    });
+
+    for (const query of [
+        { form_id: 1 },
+        { dataview_id: 1 },
+        { merged_dataset_id: 1 },
+        { form_id: 1, field_name: "a", field_value: "b" },
+        { form_id: 1, id_column: "id" },
+        { form_id: 1, columns: "id, json" },
+        {
+            form_id: 1,
+            field_name: "a",
+            field_value: "b",
+            id_column: "id",
+            columns: "json",
+        },
+    ]) {
+        test(`supplies one value per placeholder for ${JSON.stringify(query)}`, () => {
+            const filters = [{ column: "grade", filter: ">", value: "a" }];
+
+            const { text, values } = build(tile, query, {
+                xformIds: [1, 2],
+                filters,
+            });
+
+            assert.deepEqual(placeholders(text), expectedPlaceholders(values));
+        });
+    }
+
+    test("quotes the table name", () => {
+        const { text } = build(tile, { form_id: 1 });
+
+        assert.match(text, /"logger_instance" i\b/);
+    });
+
+    test("names the layer after the table through a bound value", () => {
+        const { values } = build(tile, { form_id: 1 }, oneForm, {
+            ...config,
+            tableName: "public.logger_instance",
+        });
+
+        assert.ok(values.includes("public.logger_instance"));
+    });
+
+    test("quotes a requested id column", () => {
+        const { text, values } = build(tile, { form_id: 1, id_column: "id" });
+
+        assert.match(text, /"id"/);
+        assert.ok(values.includes("id"));
+    });
+
+    test("quotes each requested column", () => {
+        const { text } = build(tile, { form_id: 1, columns: "id, json" });
+
+        assert.match(text, /, "id", "json"/);
     });
 
     test("refuses a table name that is not an identifier", () => {
         assert.throws(
             () =>
-                sql(
-                    tile,
-                    { form_id: 1 },
-                    { ...config, tableName: "logger_instance; DROP TABLE x" },
-                ),
+                build(tile, { form_id: 1 }, oneForm, {
+                    ...config,
+                    tableName: "logger_instance; DROP TABLE x",
+                }),
             /identifier/,
         );
     });

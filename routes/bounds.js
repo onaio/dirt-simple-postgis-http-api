@@ -1,4 +1,5 @@
 const { parseDataset } = require('../lib/dataset')
+const { readSubmissions } = require('../lib/reading')
 const {
   statement,
   identifier,
@@ -7,27 +8,28 @@ const {
 } = require('../lib/statement')
 const {
   parseFieldFilter,
-  datasetTables,
-  datasetConditions
+  submissionConditions
 } = require('../lib/submissions')
 
-const sql = (params, query, config) => {
-  const dataset = parseDataset(query)
-  const fieldFilter = parseFieldFilter(query)
+const NO_BOUNDS = { xmin: null, ymin: null, xmax: null, ymax: null }
+
+const parse = (query) => ({
+  dataset: parseDataset(query),
+  fieldFilter: parseFieldFilter(query)
+})
+
+const sql = ({ fieldFilter }, resolved, config) => {
   const geomColumn = identifier(config.geomColumn)
 
   return render(statement`
-  WITH ${datasetTables(dataset)},
-  filtered_data AS (
+  WITH filtered_data AS (
     SELECT
       i.${geomColumn}
     FROM
       ${qualifiedName(config.tableName)} i
-      INNER JOIN relevant_xforms xf ON i.xform_id = xf.xform_id
     WHERE
-      i.deleted_at is null
+      ${submissionConditions(resolved, fieldFilter)}
       AND i.${geomColumn} is not null
-      ${datasetConditions(dataset, fieldFilter)}
   )
   SELECT
     ST_XMin(bbox) AS xMin,
@@ -79,39 +81,22 @@ module.exports = function (fastify, opts, next) {
     method: 'GET',
     url: '/bounds',
     schema: schema,
-    handler: function (request, reply) {
-      const { text, values } = sql(request.params, request.query, opts)
+    handler: async function (request, reply) {
+      const boundsRequest = parse(request.query)
 
-      fastify.pg.connect(onConnect)
-
-      function onConnect(err, client, release) {
-        if (err) {
-          request.log.error(err)
-          return reply.code(500).send({ error: "Database connection error." })
-        }
-
-        client.query(
-          text,
-          values,
-          function onResult(err, result) {
-            release()
-            if (err) {
-              request.log.error(err)
-              return reply.code(500).send({ error: 'Query failed.' })
-            } else {
-              if(result.rows?.length > 0) {
-                return reply.send(result.rows[0])
-              } else {
-                return reply.code(404).send({error: 'No data found' });
-              }
-            }
-          }
-        )
-      }
+      const rows = await readSubmissions({
+        pg: fastify.pg,
+        request,
+        reply,
+        dataset: boundsRequest.dataset,
+        build: (resolved) => sql(boundsRequest, resolved, opts)
+      })
+      return reply.send(rows.length > 0 ? rows[0] : NO_BOUNDS)
     }
   })
   next()
 }
 
   module.exports.autoPrefix = '/v1'
+  module.exports.parse = parse
   module.exports.sql = sql
