@@ -11,7 +11,7 @@ The Dirt-Simple PostGIS HTTP API, or `dirt`, exposes PostGIS functionality to yo
 ### Requirements
 
 - [Node](https://nodejs.org/)
-- [PostgreSQL](https://postgresql.org/) with [PostGIS 3](https://postgis.net/)
+- [PostgreSQL](https://postgresql.org/) 12 or later, with [PostGIS 3](https://postgis.net/)
 - A PostgreSQL login for the service that has select rights to any tables or views you want to expose to dirt.
 
 ### Step 1: get the goodies
@@ -129,7 +129,7 @@ All routes are stored in the `routes` folder and are automatically loaded on sta
 
 ### Database
 
-Your Postgres login needs select rights on the submissions table, `logger_dataview` and `logger_mergedxform_xforms`.
+Your Postgres login needs select rights on the submissions table, `logger_dataview`, `logger_mergedxform_xforms` and `logger_xform`.
 
 For security, it should have select rights on those tables _only_.
 
@@ -181,6 +181,25 @@ Exactly one of the three must be given; a request naming more than one is refuse
 Add `temp_token` to read a dataset that is not public.
 
 A statement is stopped when the caller that asked for it goes away, as a map does each time it is panned or zoomed.
+
+#### Dataview filters
+
+A filter is compared the way the type of its field asks, which is read from the definition of the form in `logger_xform`:
+
+| Field | Compared as |
+| --- | --- |
+| type `integer`, and `_id` | a whole number |
+| type `decimal` | a number |
+| type `date`, and `_submission_time` | a date, or a date and time, written `2024-05-17` or `2024-05-17T10:20:30` |
+| any other | text |
+
+A time may carry up to six digits of a second, and a zone, which is not taken into account. A field inside a group is named by its path, `group/field`. Filters marked `"condition": "or"` are alternatives: a submission has to pass one of them, and every filter that is not marked.
+
+Where a filter cannot be applied, submissions are left out rather than shown:
+
+- a submission whose value cannot be read as the type of its field is left out;
+- a filter whose value cannot be read as the type of its field, or whose comparison is not one of `=`, `>`, `<`, `>=`, `<=`, `<>` and `!=`, leaves out every submission;
+- so does any filter on a form whose definition holds no list of fields.
 
 ### Changes require a Restart
 
