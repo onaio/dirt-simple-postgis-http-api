@@ -1,81 +1,109 @@
-// route query
-require("dotenv").config();
+const { InvalidRequestError } = require("../lib/errors");
+const { parseDataset } = require("../lib/dataset");
+const {
+    statement,
+    identifier,
+    qualifiedName,
+    concat,
+    render,
+} = require("../lib/statement");
+const {
+    parseFieldFilter,
+    datasetTables,
+    datasetConditions,
+} = require("../lib/submissions");
 
-const sql = (params, query) => {
-    return `
-    WITH dataview_filters AS (
-      -- Get dataview query filters if dataview_id is provided
-      SELECT query
-      FROM logger_dataview
-      WHERE id = ${query.dataview_id || 'NULL'}
-        AND deleted_at IS NULL
-    ),
-    relevant_xforms AS (
-      -- Case 1: If dataview_id is provided, get its xform_id
-      SELECT xform_id
-      FROM logger_dataview
-      WHERE id = ${query.dataview_id || 'NULL'}
-        AND deleted_at IS NULL
+// Keeps x and y within a 32-bit integer.
+const MAX_ZOOM = 30;
 
-      UNION
+const parseTile = ({ z, x, y }) => {
+    const named =
+        [z, x, y].every(Number.isInteger) &&
+        z >= 0 &&
+        z <= MAX_ZOOM &&
+        x >= 0 &&
+        y >= 0 &&
+        x < 2 ** z &&
+        y < 2 ** z;
+    if (!named) {
+        throw new InvalidRequestError("z, x and y must name a tile.");
+    }
+    return { z, x, y };
+};
 
-      -- Case 2: If merged_dataset_id is provided, get all constituent xforms
-      SELECT xform_id
-      FROM logger_mergedxform_xforms
-      WHERE mergedxform_id = ${query.merged_dataset_id || 'NULL'}
+// The columns the statement below has to offer.
+const SELECTABLE = ["id", "json", "geom"];
 
-      UNION
+const isSelectable = (name) => SELECTABLE.includes(name);
 
-      -- Case 3: If form_id is provided, use it directly
-      SELECT ${query.form_id || 'NULL'} AS xform_id
-      WHERE ${query.form_id || 'NULL'} IS NOT NULL
-    ),
+const normalize = (name) => name.trim().toLowerCase();
+
+const parseColumns = (columns) => {
+    if (columns === undefined || columns === "") {
+        return [];
+    }
+    const names =
+        typeof columns === "string" ? columns.split(",").map(normalize) : [];
+    if (names.length === 0 || !names.every(isSelectable)) {
+        throw new InvalidRequestError(
+            `columns must be a comma-separated list of ${SELECTABLE.join(", ")}.`,
+        );
+    }
+    return names;
+};
+
+const parseIdColumn = (idColumn) => {
+    if (idColumn === undefined || idColumn === "") {
+        return null;
+    }
+    if (typeof idColumn !== "string" || !isSelectable(normalize(idColumn))) {
+        throw new InvalidRequestError(
+            `id_column must be one of ${SELECTABLE.join(", ")}.`,
+        );
+    }
+    return normalize(idColumn);
+};
+
+const sql = (params, query, config) => {
+    const tile = parseTile(params);
+    const dataset = parseDataset(query);
+    const fieldFilter = parseFieldFilter(query);
+    const idColumn = parseIdColumn(query.id_column);
+    const selected = [
+        ...parseColumns(query.columns),
+        ...(idColumn === null ? [] : [idColumn]),
+    ];
+
+    const envelope = statement`ST_TileEnvelope(${tile.z}::int4, ${tile.x}::int4, ${tile.y}::int4)`;
+    const selectedColumns = concat(
+        selected.map((name) => statement`, ${identifier(name)}`),
+    );
+    const featureIdName =
+        idColumn === null ? statement`` : statement`, ${idColumn}::text`;
+
+    return render(statement`
+    WITH ${datasetTables(dataset)},
     mvtgeom2 as (
       SELECT
         i.id,
         i.json,
         i.geom
       FROM
-        ${process.env.TABLE_NAME} i
+        ${qualifiedName(config.tableName)} i
         INNER JOIN relevant_xforms xf ON i.xform_id = xf.xform_id
       WHERE
         i.deleted_at is null
         AND i.geom is not null
         -- Spatial filter BEFORE transform to use spatial index
         -- Use && operator for bounding box intersection (uses GIST index)
-        AND i.geom && ST_Transform(
-          ST_TileEnvelope(${params.z}, ${params.x}, ${params.y}),
-          4326
-        )
-        -- Apply dataview filters if dataview_id was provided
-        AND (
-          ${query.dataview_id || 'NULL'} IS NULL
-          OR NOT EXISTS (
-            SELECT 1
-            FROM dataview_filters df,
-                 jsonb_array_elements(df.query) AS filter
-            WHERE NOT (
-              CASE filter->>'filter'
-                WHEN '=' THEN i.json->>(filter->>'column') = filter->>'value'
-                WHEN '>' THEN i.json->>(filter->>'column') > filter->>'value'
-                WHEN '<' THEN i.json->>(filter->>'column') < filter->>'value'
-                WHEN '>=' THEN i.json->>(filter->>'column') >= filter->>'value'
-                WHEN '<=' THEN i.json->>(filter->>'column') <= filter->>'value'
-                WHEN '!=' THEN i.json->>(filter->>'column') != filter->>'value'
-                ELSE false
-              END
-            )
-          )
-        )
-        -- Optional field name/value filter
-        ${query.field_name ? `AND i.json->>'${query.field_name}'='${query.field_value}'` : ''}
+        AND i.geom && ST_Transform(${envelope}, 4326)
+        ${datasetConditions(dataset, fieldFilter)}
     ), mvtgeom as (
       SELECT
-        ST_AsMVTGeom (geom, ST_TileEnvelope (${params.z}, ${params.x}, ${params.y})) as geom,
+        ST_AsMVTGeom (geom, ${envelope}) as geom,
           id,
           json
-          ${query.columns ? `, ${query.columns}` : ""}
-          ${query.id_column ? `, ${query.id_column}` : ""}
+          ${selectedColumns}
       FROM
         (
           SELECT
@@ -87,23 +115,17 @@ const sql = (params, query) => {
         ) transformed_geom
       WHERE geom IS NOT NULL
     )
-    SELECT ST_AsMVT(mvtgeom.*, '${process.env.TABLE_NAME}', 4096, 'geom' ${
-        query.id_column ? `, '${query.id_column}'` : ""
-    }) AS mvt from mvtgeom;
-  `;
+    SELECT ST_AsMVT(mvtgeom.*, ${config.tableName}::text, 4096, 'geom' ${featureIdName}) AS mvt from mvtgeom;
+  `);
 };
 
 // route schema
 const schema = {
     description:
-        "Return table as Mapbox Vector Tile (MVT). The layer name returned is the name of the table.",
+        "Return submissions as Mapbox Vector Tile (MVT). The layer name returned is the name of the table.",
     tags: ["feature"],
     summary: "return MVT",
     params: {
-        table: {
-            type: "string",
-            description: "The name of the table or view.",
-        },
         z: {
             type: "integer",
             description: "Z value of ZXY tile.",
@@ -118,26 +140,17 @@ const schema = {
         },
     },
     querystring: {
-        geom_column: {
-            type: "string",
-            description:
-                "Optional geometry column of the table. The default is geom.",
-            default: "geom",
-        },
         columns: {
             type: "string",
+            maxLength: 1024,
             description:
-                "Optional columns to return with MVT. The default is no columns.",
+                "Optional comma-separated column names to return with MVT. The default is no columns.",
         },
         id_column: {
             type: "string",
+            maxLength: 63,
             description:
                 "Optional id column name to be used with Mapbox GL Feature State. This column must be an integer a string cast as an integer.",
-        },
-        filter: {
-            type: "string",
-            description:
-                "Optional filter parameters for a SQL WHERE statement.",
         },
         form_id: {
             type: "integer",
@@ -155,10 +168,12 @@ const schema = {
         },
         field_name: {
             type: "string",
+            maxLength: 1024,
             description: "Optional field name for custom JSON filtering.",
         },
         field_value: {
             type: "string",
+            maxLength: 4096,
             description:
                 "Optional field value for custom JSON filtering (used with field_name).",
         },
@@ -172,6 +187,8 @@ module.exports = function (fastify, opts, next) {
         url: "/mvt/:z/:x/:y",
         schema: schema,
         handler: function (request, reply) {
+            const { text, values } = sql(request.params, request.query, opts);
+
             fastify.pg.connect(onConnect);
 
             function onConnect(err, client, release) {
@@ -182,26 +199,22 @@ module.exports = function (fastify, opts, next) {
                         .send({ error: "Database connection error." });
                 }
 
-                client.query(
-                    sql(request.params, request.query),
-                    function onResult(err, result) {
-                        release();
-                        if (err) {
-                            return reply.code(400).send({ error: err.message });
-                        } else {
-                            const mvt = result.rows[0].mvt;
-                            if (mvt.length === 0) {
-                                return reply.code(204).send();
-                            }
-                            reply
-                                .header(
-                                    "Content-Type",
-                                    "application/x-protobuf",
-                                )
-                                .send(mvt);
-                        }
-                    },
-                );
+                client.query(text, values, function onResult(err, result) {
+                    release();
+                    if (err) {
+                        request.log.error(err);
+                        return reply
+                            .code(500)
+                            .send({ error: "Query failed." });
+                    }
+                    const mvt = result.rows[0].mvt;
+                    if (mvt.length === 0) {
+                        return reply.code(204).send();
+                    }
+                    return reply
+                        .header("Content-Type", "application/x-protobuf")
+                        .send(mvt);
+                });
             }
         },
     });

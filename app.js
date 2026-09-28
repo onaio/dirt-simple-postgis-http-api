@@ -1,0 +1,114 @@
+const path = require("path");
+
+const {
+    checkConfiguration,
+    requestsPerMinute,
+    postgresOptions,
+    allowedOrigins,
+    trustedProxy,
+    swaggerOptions,
+} = require("./lib/configuration");
+const { InvalidRequestError } = require("./lib/errors");
+const { loggerOptions } = require("./lib/logging");
+const { createPermissionCheck, isPublicRoute } = require("./lib/permissions");
+
+const TOO_MANY_REQUESTS = 429;
+
+// Other client errors are raised by the framework and can quote the request.
+const hasOwnMessage = (error) =>
+    error instanceof InvalidRequestError ||
+    Array.isArray(error.validation) ||
+    error.statusCode === TOO_MANY_REQUESTS;
+
+const handleError = (error, request, reply) => {
+    const isClientError = error.statusCode >= 400 && error.statusCode < 500;
+    if (!isClientError) {
+        request.log.error(error);
+        return reply.code(500).send({ error: "Internal server error." });
+    }
+    return reply.code(error.statusCode).send({
+        error: hasOwnMessage(error)
+            ? error.message
+            : "The request could not be processed.",
+    });
+};
+
+const handleNotFound = (request, reply) =>
+    reply.code(404).send({ error: "Not found." });
+
+async function build(env) {
+    checkConfiguration(env);
+    const rateLimit = requestsPerMinute(env);
+
+    const fastify = require("fastify")({
+        logger: loggerOptions(env),
+        trustProxy: trustedProxy(env),
+    });
+
+    fastify.setErrorHandler(handleError);
+    fastify.setNotFoundHandler(handleNotFound);
+
+    // CORS
+    fastify.register(require("@fastify/cors"), {
+        origin: allowedOrigins(env),
+    });
+
+    // OPTIONAL RATE LIMITER
+    if (rateLimit !== null) {
+        fastify.register(import("@fastify/rate-limit"), {
+            global: false,
+            max: rateLimit,
+            timeWindow: "1 minute",
+            allowList: isPublicRoute,
+        });
+    }
+
+    // Added once the plugins above have loaded, so that their hooks run
+    // first: a refusal can be read across origins, and a rate-limited request
+    // costs the permission service nothing.
+    fastify.after(() => {
+        if (rateLimit !== null) {
+            fastify.addHook("onRequest", fastify.rateLimit());
+        }
+        fastify.addHook("onRequest", createPermissionCheck(env));
+    });
+
+    fastify.register(require("@fastify/postgres"), postgresOptions(env));
+
+    // COMPRESSION
+    // add x-protobuf
+    fastify.register(require("@fastify/compress"), {
+        customTypes: /x-protobuf$/,
+    });
+
+    // CACHE SETTINGS
+    fastify.register(require("@fastify/caching"), {
+        privacy: env.CACHE_PRIVACY || "private",
+        expiresIn: env.CACHE_EXPIRESIN || 3600,
+        serverExpiresIn: env.CACHE_SERVERCACHE,
+    });
+
+    // INITIALIZE SWAGGER
+    fastify.register(require("@fastify/swagger"), swaggerOptions(env));
+
+    // ADD ROUTES
+    fastify.register(require("@fastify/autoload"), {
+        dir: path.join(__dirname, "routes"),
+        options: {
+            tableName: env.TABLE_NAME,
+            geomColumn: env.TABLE_COLUMN,
+        },
+    });
+
+    fastify.get(
+        "/health-check",
+        { logLevel: "warn", config: { public: true } },
+        (request, reply) => {
+            reply.send("healthy");
+        },
+    );
+
+    return fastify;
+}
+
+module.exports = { build };

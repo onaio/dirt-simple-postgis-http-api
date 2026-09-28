@@ -1,66 +1,33 @@
-// route query
-require("dotenv").config()
+const { parseDataset } = require('../lib/dataset')
+const {
+  statement,
+  identifier,
+  qualifiedName,
+  render
+} = require('../lib/statement')
+const {
+  parseFieldFilter,
+  datasetTables,
+  datasetConditions
+} = require('../lib/submissions')
 
-const sql = (params, query) => {
-  return `
-  WITH dataview_filters AS (
-    -- Get dataview query filters if dataview_id is provided
-    SELECT query
-    FROM logger_dataview
-    WHERE id = ${query.dataview_id || 'NULL'}
-      AND deleted_at IS NULL
-  ),
-  relevant_xforms AS (
-    -- Case 1: If dataview_id is provided, get its xform_id
-    SELECT xform_id
-    FROM logger_dataview
-    WHERE id = ${query.dataview_id || 'NULL'}
-      AND deleted_at IS NULL
+const sql = (params, query, config) => {
+  const dataset = parseDataset(query)
+  const fieldFilter = parseFieldFilter(query)
+  const geomColumn = identifier(config.geomColumn)
 
-    UNION
-
-    -- Case 2: If merged_dataset_id is provided, get all constituent xforms
-    SELECT xform_id
-    FROM logger_mergedxform_xforms
-    WHERE mergedxform_id = ${query.merged_dataset_id || 'NULL'}
-
-    UNION
-
-    -- Case 3: If form_id is provided, use it directly
-    SELECT ${query.form_id || 'NULL'} AS xform_id
-    WHERE ${query.form_id || 'NULL'} IS NOT NULL
-  ),
+  return render(statement`
+  WITH ${datasetTables(dataset)},
   filtered_data AS (
     SELECT
-      i.${process.env.TABLE_COLUMN}
+      i.${geomColumn}
     FROM
-      ${process.env.TABLE_NAME} i
+      ${qualifiedName(config.tableName)} i
       INNER JOIN relevant_xforms xf ON i.xform_id = xf.xform_id
     WHERE
       i.deleted_at is null
-      AND i.geom is not null
-      -- Apply dataview filters if dataview_id was provided
-      AND (
-        ${query.dataview_id || 'NULL'} IS NULL
-        OR NOT EXISTS (
-          SELECT 1
-          FROM dataview_filters df,
-               jsonb_array_elements(df.query) AS filter
-          WHERE NOT (
-            CASE filter->>'filter'
-              WHEN '=' THEN i.json->>(filter->>'column') = filter->>'value'
-              WHEN '>' THEN i.json->>(filter->>'column') > filter->>'value'
-              WHEN '<' THEN i.json->>(filter->>'column') < filter->>'value'
-              WHEN '>=' THEN i.json->>(filter->>'column') >= filter->>'value'
-              WHEN '<=' THEN i.json->>(filter->>'column') <= filter->>'value'
-              WHEN '!=' THEN i.json->>(filter->>'column') != filter->>'value'
-              ELSE false
-            END
-          )
-        )
-      )
-      -- Optional field name/value filter
-      ${query.field_name ? `AND i.json->>'${query.field_name}'='${query.field_value}'` : ''}
+      AND i.${geomColumn} is not null
+      ${datasetConditions(dataset, fieldFilter)}
   )
   SELECT
     ST_XMin(bbox) AS xMin,
@@ -68,10 +35,10 @@ const sql = (params, query) => {
     ST_XMax(bbox) AS xMax,
     ST_YMax(bbox) AS yMax
   FROM (
-    SELECT ST_Extent(${process.env.TABLE_COLUMN}) AS bbox
+    SELECT ST_Extent(${geomColumn}) AS bbox
     FROM filtered_data
   ) AS subquery;
-  `
+  `)
 }
 
  // route schema
@@ -95,19 +62,17 @@ const schema = {
     },
     field_name: {
       type: 'string',
+      maxLength: 1024,
       description: 'Optional field name for custom JSON filtering.',
     },
     field_value: {
       type: 'string',
+      maxLength: 4096,
       description: 'Optional field value for custom JSON filtering (used with field_name).',
-    },
-    limit: {
-      type: 'string',
-      description: 'Optional rows limit count.'
     }
   }
 }
-  
+
 // create route
 module.exports = function (fastify, opts, next) {
   fastify.route({
@@ -115,6 +80,8 @@ module.exports = function (fastify, opts, next) {
     url: '/bounds',
     schema: schema,
     handler: function (request, reply) {
+      const { text, values } = sql(request.params, request.query, opts)
+
       fastify.pg.connect(onConnect)
 
       function onConnect(err, client, release) {
@@ -124,11 +91,13 @@ module.exports = function (fastify, opts, next) {
         }
 
         client.query(
-          sql(request.params, request.query),
+          text,
+          values,
           function onResult(err, result) {
             release()
             if (err) {
-              return reply.code(400).send({ error: err.message })
+              request.log.error(err)
+              return reply.code(500).send({ error: 'Query failed.' })
             } else {
               if(result.rows?.length > 0) {
                 return reply.send(result.rows[0])
@@ -143,6 +112,6 @@ module.exports = function (fastify, opts, next) {
   })
   next()
 }
-  
+
   module.exports.autoPrefix = '/v1'
   module.exports.sql = sql
