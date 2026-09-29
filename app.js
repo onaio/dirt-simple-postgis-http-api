@@ -107,7 +107,9 @@ async function build(env) {
         if (rateLimit !== null) {
             fastify.addHook("onRequest", fastify.rateLimit());
         }
-        fastify.addHook("onRequest", permissionCheck);
+        // Asked after the request has been checked against the route's
+        // schema, so that one the schema refuses costs nothing upstream.
+        fastify.addHook("preHandler", permissionCheck);
     });
 
     fastify.register(require("@fastify/postgres"), postgresOptions(env));

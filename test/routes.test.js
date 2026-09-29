@@ -179,6 +179,37 @@ describe("requests that cannot be served", () => {
             assert.equal(response.statusCode, 400);
         });
     });
+
+    const oversized = [
+        ["a field value", `field_name=a&field_value=${"v".repeat(4097)}`],
+        ["a field name", `field_name=${"n".repeat(1025)}&field_value=v`],
+        ["a list of columns", `columns=${"id,".repeat(400)}id`],
+        ["an id column", `id_column=${"i".repeat(64)}`],
+    ];
+
+    for (const [label, parameters] of oversized) {
+        test(`${label} beyond its limit is refused without asking whether the caller may read the dataset`, async () => {
+            await withApp({}, async ({ app, onadata }) => {
+                const response = await app.inject({
+                    url: `/v1/mvt/0/0/0?form_id=7&${parameters}`,
+                });
+
+                assert.equal(response.statusCode, 400);
+                assert.deepEqual(onadata.requests(), []);
+            });
+        });
+    }
+
+    test("a request within the limits is still asked about", async () => {
+        await withApp({}, async ({ app, onadata }) => {
+            const response = await app.inject({
+                url: "/v1/mvt/0/0/0?form_id=7&columns=id&field_name=a&field_value=v",
+            });
+
+            assert.equal(response.statusCode, 500);
+            assert.equal(onadata.requests().length, 1);
+        });
+    });
 });
 
 describe("database connection", () => {

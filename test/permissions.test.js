@@ -158,6 +158,55 @@ describe("permission check: denied requests", () => {
     });
 });
 
+describe("permission check: the routes that serve submissions", () => {
+    const serving = [
+        ["a tile", "/v1/mvt/0/0/0"],
+        ["bounds", "/v1/bounds"],
+    ];
+
+    for (const [label, url] of serving) {
+        test(`${label} is asked about before anything is read`, async () => {
+            await withApp({}, async ({ app, onadata }) => {
+                await app.inject({ url: `${url}?form_id=7&temp_token=abc` });
+
+                assert.deepEqual(onadata.requests(), [
+                    {
+                        method: "GET",
+                        url: "/api/v1/forms/7.json",
+                        authorization: "TempToken abc",
+                    },
+                ]);
+            });
+        });
+
+        test(`${label} is refused to a caller the upstream denies`, async () => {
+            const respond = () => ({ status: 403 });
+
+            await withApp({ respond }, async ({ app }) => {
+                const response = await app.inject({ url: `${url}?form_id=7` });
+
+                assert.equal(response.statusCode, 403);
+                assert.deepEqual(response.json(), {
+                    error: "Permission denied.",
+                });
+            });
+        });
+
+        test(`${label} is refused when the upstream cannot be reached`, async () => {
+            const env = { ONADATA_URL: "http://127.0.0.1:1" };
+
+            await withApp({ env }, async ({ app }) => {
+                const response = await app.inject({ url: `${url}?form_id=7` });
+
+                assert.equal(response.statusCode, 500);
+                assert.deepEqual(response.json(), {
+                    error: "Permission check failed.",
+                });
+            });
+        });
+    }
+});
+
 describe("permission check: other request methods", () => {
     const preflight = (url) => ({
         method: "OPTIONS",
