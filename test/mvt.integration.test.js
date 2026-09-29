@@ -443,6 +443,23 @@ describe("mvt route on a partitioned table against PostGIS", { skip }, () => {
         }
     });
 
+    test("takes each geometry to the tile's projection once", async () => {
+        const request = parse({ z: 0, x: 0, y: 0 }, { form_id: OWN_FORM });
+        const { text, values } = sql(
+            request,
+            readDataset(request.dataset, []),
+            config,
+        );
+
+        const { rows } = await database.run(
+            `EXPLAIN (VERBOSE, COSTS OFF) ${text.replace(/;\s*$/, "")}`,
+            values,
+        );
+        const plan = rows.map((row) => row["QUERY PLAN"]).join("\n");
+
+        assert.equal(plan.match(/st_transform\(i\.geom, 3857\)/g).length, 1);
+    });
+
     test("reads only the partition of the requested form", async () => {
         assert.deepEqual(await partitionsRead({ form_id: OWN_FORM }), [
             "partitioned_instance_own",

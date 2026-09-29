@@ -114,7 +114,7 @@ describe("mvt statement", () => {
         );
 
         assert.doesNotMatch(text, /842230|842231|512|511/);
-        assert.deepEqual(values[0], [842230, 842231]);
+        assert.deepEqual(values.filter(Array.isArray), [[842230, 842231]]);
         for (const value of [10, 512, 511]) {
             assert.ok(values.includes(value), `missing ${value}`);
         }

@@ -78,46 +78,31 @@ const parse = (params, query) => {
 
 const sql = ({ tile, fieldFilter, idColumn }, resolved, config) => {
     const envelope = statement`ST_TileEnvelope(${tile.z}::int4, ${tile.x}::int4, ${tile.y}::int4)`;
+    const geometry = statement`i.${identifier(config.geomColumn)}`;
     // The column a feature id is taken from is left out of the feature's
     // properties, so it is selected a second time to stay one.
-    const selectedColumns =
-        idColumn === null ? statement`` : statement`, ${identifier(idColumn)}`;
+    const featureId =
+        idColumn === null ? statement`` : statement`, i.${identifier(idColumn)}`;
     const featureIdName =
         idColumn === null ? statement`` : statement`, ${idColumn}::text`;
-    const geometry = statement`i.${identifier(config.geomColumn)}`;
 
+    // The envelope is taken to the projection of the geometries, and not
+    // they to its own, so that their index can be used to find them.
     return render(statement`
-    WITH mvtgeom2 as (
+    SELECT ST_AsMVT(tile.*, ${config.tableName}::text, 4096, 'geom' ${featureIdName}) AS mvt
+    FROM (
       SELECT
+        ST_AsMVTGeom(ST_Transform(${geometry}, 3857), ${envelope}) AS geom,
         i.id,
-        i.json,
-        ${geometry} AS geom
+        i.json
+        ${featureId}
       FROM
         ${qualifiedName(config.tableName)} i
       WHERE
         ${submissionConditions(resolved, fieldFilter)}
         AND ${geometry} is not null
-        -- Spatial filter BEFORE transform to use spatial index
-        -- Use && operator for bounding box intersection (uses GIST index)
         AND ${geometry} && ST_Transform(${envelope}, 4326)
-    ), mvtgeom as (
-      SELECT
-        ST_AsMVTGeom (geom, ${envelope}) as geom,
-          id,
-          json
-          ${selectedColumns}
-      FROM
-        (
-          SELECT
-              id,
-              json,
-              ST_Transform (geom, 3857) as geom
-          FROM
-            mvtgeom2
-        ) transformed_geom
-      WHERE geom IS NOT NULL
-    )
-    SELECT ST_AsMVT(mvtgeom.*, ${config.tableName}::text, 4096, 'geom' ${featureIdName}) AS mvt from mvtgeom;
+    ) tile;
   `);
 };
 
