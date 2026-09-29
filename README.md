@@ -180,7 +180,7 @@ Exactly one of the three must be given; a request naming more than one is refuse
 
 Add `temp_token` to read a dataset that is not public.
 
-A statement is stopped when the caller that asked for it goes away, as a map does each time it is panned or zoomed.
+A statement is stopped when the caller that asked for it goes away, as a map does each time it is panned or zoomed. The request to stop it is sent on a connection of its own, in the clear, and a proxy or pooler in front of Postgres may not pass it on; where that happens the statement runs to its own end, and a line in the log says so.
 
 #### Dataview filters
 

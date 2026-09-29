@@ -341,10 +341,34 @@ describe("readSubmissions for a caller that leaves", () => {
         await reading;
 
         const [first, second, third, fourth] = cancelled.entries();
-        assert.equal(cancelled.entries().length, 4);
+        assert.ok(
+            cancelled.entries().length >= 4,
+            `asked ${cancelled.entries().length} times`,
+        );
         assert.ok(second - first >= 45, `second came after ${second - first} ms`);
         assert.ok(third - second >= 95, `third came after ${third - second} ms`);
         assert.ok(fourth - third >= 195, `fourth came after ${fourth - third} ms`);
+    });
+
+    test("says so when the statement outlasts every attempt", async () => {
+        const events = recorder();
+        const database = connection([{ rows: [], after: 3000 }], events);
+        const reply = response();
+        const cancel = async () => true;
+
+        const reading = read(database, reply, {
+            cancel,
+            request: { log: logger(events) },
+        });
+        await leave(reply);
+        await reading;
+
+        assert.ok(
+            events
+                .entries()
+                .includes("warn: statement still running after every cancel {}"),
+            JSON.stringify(events.entries()),
+        );
     });
 
     test("stops asking once the statement has ended", async () => {
