@@ -26,7 +26,6 @@ describe("mvt request", () => {
             tile,
             dataset: { formId: null, dataviewId: 8, mergedDatasetId: null },
             fieldFilter: { name: "status", value: "approved" },
-            columns: ["id", "json"],
             idColumn: "id",
         });
     });
@@ -35,7 +34,6 @@ describe("mvt request", () => {
         const request = parse(tile, { form_id: 1 });
 
         assert.equal(request.fieldFilter, null);
-        assert.deepEqual(request.columns, []);
         assert.equal(request.idColumn, null);
     });
 
@@ -52,6 +50,10 @@ describe("mvt request", () => {
     const invalid = [
         ["a column the tile does not hold", { form_id: 1, columns: "xml" }],
         ["an id column the tile does not hold", { form_id: 1, id_column: "uuid" }],
+        ["the geometry as a column", { form_id: 1, columns: "geom" }],
+        ["the geometry beside other columns", { form_id: 1, columns: "id,geom" }],
+        ["the submission as the id column", { form_id: 1, id_column: "json" }],
+        ["the geometry as the id column", { form_id: 1, id_column: "geom" }],
         ["a column expression", { form_id: 1, columns: "count(*)" }],
         [
             "a column subquery",
@@ -222,11 +224,23 @@ describe("mvt statement", () => {
         assert.ok(values.includes("id"));
     });
 
-    test("quotes each requested column", () => {
-        const { text } = build(tile, { form_id: 1, columns: "id, json" });
+    const held = [
+        "id",
+        "json",
+        "id, json",
+        "ID, Json",
+        "json,json,json",
+        Array.from({ length: 204 }, () => "json").join(","),
+    ];
 
-        assert.match(text, /, "id", "json"/);
-    });
+    for (const columns of held) {
+        test(`adds nothing to the statement for columns ${columns.slice(0, 20)}, which every tile holds`, () => {
+            assert.deepEqual(
+                build(tile, { form_id: 1, columns }),
+                build(tile, { form_id: 1 }),
+            );
+        });
+    }
 
     test("refuses a table name that is not an identifier", () => {
         assert.throws(

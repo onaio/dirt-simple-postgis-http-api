@@ -236,12 +236,30 @@ describe("mvt route against PostGIS", { skip }, () => {
         assert.deepEqual(tileProperties(response), OWN_FORM_PROPERTIES);
     });
 
-    for (const columns of ["id", "json", "id,json", "ID, Json"]) {
-        test(`asking for columns ${columns} leaves the tile contents unchanged`, async () => {
+    for (const columns of ["id", "json", "id,json", "ID, Json", "json,json,json"]) {
+        test(`asking for columns ${columns} leaves the tile as it is`, async () => {
+            const plain = await fetchTile({ form_id: OWN_FORM });
             const response = await fetchTile({ form_id: OWN_FORM, columns });
 
             assert.equal(response.statusCode, 200);
             assert.deepEqual(tileProperties(response), OWN_FORM_PROPERTIES);
+            assert.deepEqual(response.rawPayload, plain.rawPayload);
+        });
+    }
+
+    for (const [label, parameters] of [
+        ["the geometry as a column", { columns: "geom" }],
+        ["the submission as the id column", { id_column: "json" }],
+        ["the geometry as the id column", { id_column: "geom" }],
+    ]) {
+        test(`asking for ${label} is a 400`, async () => {
+            const response = await fetchTile({
+                form_id: OWN_FORM,
+                ...parameters,
+            });
+
+            assert.equal(response.statusCode, 400);
+            assert.deepEqual(Object.keys(response.json()), ["error"]);
         });
     }
 });

@@ -5,7 +5,6 @@ const {
     statement,
     identifier,
     qualifiedName,
-    concat,
     render,
 } = require("../lib/statement");
 const {
@@ -31,54 +30,58 @@ const parseTile = ({ z, x, y }) => {
     return { z, x, y };
 };
 
-// The columns the statement below has to offer.
-const SELECTABLE = ["id", "json", "geom"];
+// Every tile holds these whether they are asked for or not, so naming them
+// as columns adds nothing.
+const HELD = ["id", "json"];
 
-const isSelectable = (name) => SELECTABLE.includes(name);
+// The only column of whole numbers, which a feature id has to be.
+const FEATURE_ID = "id";
 
 const normalize = (name) => name.trim().toLowerCase();
 
-const parseColumns = (columns) => {
+const checkColumns = (columns) => {
     if (columns === undefined || columns === "") {
-        return [];
+        return;
     }
     const names =
         typeof columns === "string" ? columns.split(",").map(normalize) : [];
-    if (names.length === 0 || !names.every(isSelectable)) {
+    if (names.length === 0 || !names.every((name) => HELD.includes(name))) {
         throw new InvalidRequestError(
-            `columns must be a comma-separated list of ${SELECTABLE.join(", ")}.`,
+            `columns must be a comma-separated list of ${HELD.join(", ")}.`,
         );
     }
-    return names;
 };
 
 const parseIdColumn = (idColumn) => {
     if (idColumn === undefined || idColumn === "") {
         return null;
     }
-    if (typeof idColumn !== "string" || !isSelectable(normalize(idColumn))) {
-        throw new InvalidRequestError(
-            `id_column must be one of ${SELECTABLE.join(", ")}.`,
-        );
+    if (typeof idColumn !== "string" || normalize(idColumn) !== FEATURE_ID) {
+        throw new InvalidRequestError(`id_column must be ${FEATURE_ID}.`);
     }
-    return normalize(idColumn);
+    return FEATURE_ID;
 };
 
-const parse = (params, query) => ({
-    tile: parseTile(params),
-    dataset: parseDataset(query),
-    fieldFilter: parseFieldFilter(query),
-    columns: parseColumns(query.columns),
-    idColumn: parseIdColumn(query.id_column),
-});
+const parse = (params, query) => {
+    const tile = parseTile(params);
+    const dataset = parseDataset(query);
+    const fieldFilter = parseFieldFilter(query);
+    checkColumns(query.columns);
 
-const sql = ({ tile, fieldFilter, columns, idColumn }, resolved, config) => {
-    const selected = [...columns, ...(idColumn === null ? [] : [idColumn])];
+    return {
+        tile,
+        dataset,
+        fieldFilter,
+        idColumn: parseIdColumn(query.id_column),
+    };
+};
 
+const sql = ({ tile, fieldFilter, idColumn }, resolved, config) => {
     const envelope = statement`ST_TileEnvelope(${tile.z}::int4, ${tile.x}::int4, ${tile.y}::int4)`;
-    const selectedColumns = concat(
-        selected.map((name) => statement`, ${identifier(name)}`),
-    );
+    // The column a feature id is taken from is left out of the feature's
+    // properties, so it is selected a second time to stay one.
+    const selectedColumns =
+        idColumn === null ? statement`` : statement`, ${identifier(idColumn)}`;
     const featureIdName =
         idColumn === null ? statement`` : statement`, ${idColumn}::text`;
 
@@ -142,13 +145,13 @@ const schema = {
             type: "string",
             maxLength: 1024,
             description:
-                "Optional comma-separated column names to return with MVT. The default is no columns.",
+                "Optional comma-separated list of id and json. Every feature holds both whether or not they are named.",
         },
         id_column: {
             type: "string",
             maxLength: 63,
             description:
-                "Optional id column name to be used with Mapbox GL Feature State. This column must be an integer a string cast as an integer.",
+                "Optional. Give id to have each feature carry the id of its submission as its feature id.",
         },
         form_id: {
             type: "integer",
