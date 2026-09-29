@@ -45,6 +45,14 @@ const watchIdleConnections = async (fastify) => {
     );
 };
 
+// A failure that a browser kept would go on being shown after its cause had
+// passed.
+const keepNoFailure = async (request, reply) => {
+    if (reply.statusCode >= 400) {
+        reply.header("Cache-Control", "no-store");
+    }
+};
+
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
 
@@ -60,6 +68,7 @@ async function build(env) {
 
     fastify.setErrorHandler(handleError);
     fastify.setNotFoundHandler(handleNotFound);
+    fastify.addHook("onSend", keepNoFailure);
 
     // CORS
     fastify.register(require("@fastify/cors"), {
