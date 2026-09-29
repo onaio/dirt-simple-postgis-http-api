@@ -238,6 +238,64 @@ describe("database connection", () => {
         }
     });
 
+    const overriding = [
+        "sslmode=require",
+        "sslmode=verify-full",
+        "sslmode=disable",
+        "ssl=true",
+        "sslrootcert=/etc/ca.crt",
+        "sslcert=/etc/client.crt",
+        "sslkey=/etc/client.key",
+        "application_name=tiles&sslmode=require",
+    ];
+
+    for (const parameter of overriding) {
+        test(`build refuses a certificate authority beside ${parameter} in the connection string`, async () => {
+            const env = testEnv({
+                POSTGRES_CONNECTION: `postgres://u:p@127.0.0.1:1/none?${parameter}`,
+                SSL_ROOT_CERT: "inline-certificate",
+            });
+
+            await assert.rejects(
+                () => build(env),
+                /SSL_ROOT_CERT.*POSTGRES_CONNECTION/,
+            );
+        });
+    }
+
+    test("build does not repeat the connection string when it refuses it", async () => {
+        const env = testEnv({
+            POSTGRES_CONNECTION:
+                "postgres://u:hunter2@127.0.0.1:1/none?sslmode=require",
+            SSL_ROOT_CERT: "inline-certificate",
+        });
+
+        await assert.rejects(
+            () => build(env),
+            (error) => !/hunter2|127\.0\.0\.1/.test(error.message),
+        );
+    });
+
+    test("takes a connection string with other parameters beside a certificate authority", async () => {
+        const ssl = await sslOptions({
+            POSTGRES_CONNECTION:
+                "postgres://u:p@127.0.0.1:1/none?application_name=sslmode",
+            SSL_ROOT_CERT: "inline-certificate",
+        });
+
+        assert.deepEqual(ssl, { ca: "inline-certificate" });
+    });
+
+    test("takes sslmode in the connection string when no certificate authority is given", async () => {
+        const app = await build(
+            testEnv({
+                POSTGRES_CONNECTION:
+                    "postgres://u:p@127.0.0.1:1/none?sslmode=require",
+            }),
+        );
+        await app.close();
+    });
+
     test("prefers the inline certificate authority over the file", async () => {
         const ssl = await sslOptions({
             SSL_ROOT_CERT: "inline-certificate",

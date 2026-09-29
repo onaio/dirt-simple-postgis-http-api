@@ -213,7 +213,7 @@ If you see an error like
 no pg_hba.conf entry for host <host>, user <user>, database <database>, no encryption
 ```
 
-you may need to connect to your server over SSL. Obtain a CA certificate and set `SSL_ROOT_CERT_PATH=<path to the certificate>` in `.env`. If you're still getting an error, check the end of your connection string for `?sslmode=require` and try removing it. You should still be able to connect over SSL.
+you may need to connect to your server over SSL. Obtain a CA certificate and set `SSL_ROOT_CERT_PATH=<path to the certificate>` in `.env`. The certificate cannot be used together with `ssl`, `sslmode`, `sslrootcert`, `sslcert` or `sslkey` in the connection string, any of which would replace it, so dirt refuses to start until they are removed. It still connects over SSL without them.
 
 If you're running Dirt on Docker, it may be easier to pass the contents of the certificate with `SSL_ROOT_CERT`. Example:
 
