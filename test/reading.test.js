@@ -120,17 +120,49 @@ describe("readSubmissions", () => {
         ]);
     });
 
-    test("keeps the connection when the statement fails", async () => {
-        const events = recorder();
-        const database = connection([{ error: new Error("boom") }], events);
+    const failed = (code) => Object.assign(new Error("boom"), { code });
 
-        await assert.rejects(() => read(database, response()));
+    for (const [label, code] of [
+        ["was wrong", "42P01"],
+        ["took too long", "57014"],
+        ["could not read a value", "22P02"],
+    ]) {
+        test(`keeps the connection when the statement ${label}`, async () => {
+            const events = recorder();
+            const database = connection([{ error: failed(code) }], events);
 
-        assert.deepEqual(events.entries(), [
-            "statement ended",
-            "connection kept",
-        ]);
-    });
+            await assert.rejects(() => read(database, response()));
+
+            assert.deepEqual(events.entries(), [
+                "statement ended",
+                "connection kept",
+            ]);
+        });
+    }
+
+    for (const [label, error] of [
+        ["the database ended the connection", failed("57P01")],
+        ["the database went down", failed("57P02")],
+        ["the connection failed", failed("08006")],
+        ["the database reported a fault of its own", failed("XX000")],
+        ["the connection was reset", failed("ECONNRESET")],
+        ["nothing says why", new Error("Connection terminated unexpectedly")],
+    ]) {
+        test(`discards the connection when ${label}`, async () => {
+            const events = recorder();
+            const database = connection([{ error }], events);
+
+            await assert.rejects(
+                () => read(database, response()),
+                /Query failed\./,
+            );
+
+            assert.deepEqual(events.entries(), [
+                "statement ended",
+                "connection discarded",
+            ]);
+        });
+    }
 
     test("reports a failing statement without its cause in the message", async () => {
         const database = connection([{ error: new Error("relation missing") }]);
