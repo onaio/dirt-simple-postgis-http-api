@@ -52,9 +52,26 @@ describe("loggerOptions", () => {
         assert.equal(loggerOptions({ SERVER_LOGGER: "true" }).level, "info");
     });
 
-    test("uses the configured level", () => {
-        assert.equal(loggerOptions({ SERVER_LOGGER: "warn" }).level, "warn");
-    });
+    for (const level of ["fatal", "error", "warn", "info", "debug", "trace", "silent"]) {
+        test(`uses the configured level ${level}`, () => {
+            assert.equal(loggerOptions({ SERVER_LOGGER: level }).level, level);
+        });
+    }
+
+    for (const value of ["false", ""]) {
+        test(`turns logging off when the level is ${JSON.stringify(value)}`, () => {
+            assert.equal(loggerOptions({ SERVER_LOGGER: value }), false);
+        });
+    }
+
+    for (const value of ["yes", "INFO", "verbose", "1", "warn "]) {
+        test(`refuses the level ${JSON.stringify(value)}`, () => {
+            assert.throws(
+                () => loggerOptions({ SERVER_LOGGER: value }),
+                /SERVER_LOGGER must be one of/,
+            );
+        });
+    }
 
     test("logs to the configured file", () => {
         const options = loggerOptions({

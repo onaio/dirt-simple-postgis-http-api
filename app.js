@@ -4,6 +4,7 @@ const {
     checkConfiguration,
     requestsPerMinute,
     postgresOptions,
+    cachingOptions,
     allowedOrigins,
     trustedProxy,
     swaggerOptions,
@@ -105,11 +106,7 @@ async function build(env) {
     });
 
     // CACHE SETTINGS
-    fastify.register(require("@fastify/caching"), {
-        privacy: env.CACHE_PRIVACY || "private",
-        expiresIn: env.CACHE_EXPIRESIN || 3600,
-        serverExpiresIn: env.CACHE_SERVERCACHE,
-    });
+    fastify.register(require("@fastify/caching"), cachingOptions(env));
 
     // INITIALIZE SWAGGER
     fastify.register(require("@fastify/swagger"), swaggerOptions(env));

@@ -12,6 +12,63 @@ const cachingOf = async (url, options = {}) =>
         return [response.statusCode, response.headers["cache-control"]];
     });
 
+describe("how an answer is said to be kept", () => {
+    const keptWith = async (env) =>
+        (await cachingOf(`${PROBE}?form_id=7`, { env }))[1];
+
+    test("for the configured time", async () => {
+        assert.equal(
+            await keptWith({ CACHE_EXPIRESIN: "120" }),
+            "private, max-age=120",
+        );
+    });
+
+    test("by anyone, when so configured", async () => {
+        assert.equal(
+            await keptWith({ CACHE_PRIVACY: "public" }),
+            "public, max-age=3600",
+        );
+    });
+
+    test("by a shared cache for a time of its own", async () => {
+        assert.equal(
+            await keptWith({
+                CACHE_PRIVACY: "public",
+                CACHE_SERVERCACHE: "60",
+            }),
+            "public, max-age=3600, s-maxage=60",
+        );
+    });
+
+    test("as by default when the settings are left empty", async () => {
+        assert.equal(
+            await keptWith({
+                CACHE_PRIVACY: "",
+                CACHE_EXPIRESIN: "",
+                CACHE_SERVERCACHE: "",
+            }),
+            KEPT,
+        );
+    });
+
+    const refused = [
+        ["CACHE_EXPIRESIN", ["abc", "-1", "1.5", "1h", "2147483648"]],
+        ["CACHE_SERVERCACHE", ["abc", "-1", "1.5", "1h", "2147483648"]],
+        ["CACHE_PRIVACY", ["secret", "Private", "no-store"]],
+    ];
+
+    for (const [name, values] of refused) {
+        for (const value of values) {
+            test(`build refuses to start with ${name} set to ${JSON.stringify(value)}`, async () => {
+                await assert.rejects(
+                    () => withApp({ env: { [name]: value } }, async () => {}),
+                    new RegExp(`${name} must be`),
+                );
+            });
+        }
+    }
+});
+
 describe("how long an answer may be kept", () => {
     test("an answer that was served may be kept", async () => {
         assert.deepEqual(await cachingOf(`${PROBE}?form_id=7`), [200, KEPT]);

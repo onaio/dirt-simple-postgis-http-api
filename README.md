@@ -50,12 +50,12 @@ This is the complete complete list of environmental variables that can be set.
 | DATAVIEWS_ENDPOINT | Yes | N/A | Path checked for `dataview_id`, ex: `/api/v1/dataviews/` |
 | MERGED_DATASETS_ENDPOINT | Yes | N/A | Path checked for `merged_dataset_id`, ex: `/api/v1/merged-datasets/` |
 | CORS_ORIGINS | No | undefined | Comma-separated origins allowed to call the API, or `*` for any. No origin is allowed when unset. |
-| SERVER_LOGGER | No | undefined | Turn on Fastify's [error logger](https://www.fastify.io/docs/latest/Reference/Logging/). Options are `true` (same as `info`), `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent`.  |
+| SERVER_LOGGER | No | undefined | Turn on Fastify's [error logger](https://www.fastify.io/docs/latest/Reference/Logging/). Options are `true` (same as `info`), `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent`. `false` or nothing leaves it off; anything else stops dirt from starting.  |
 | SERVER_LOGGER_PATH | No | undefined | Log to file instead of console, ex: `/path/to/file`  |
 | SERVER_HOST | No | 0.0.0.0 | IP to [listen](https://www.fastify.io/docs/latest/Reference/Server/#listen) on, default is all |
 | SERVER_PORT | No | 3000 | Port to [listen](https://www.fastify.io/docs/latest/Reference/Server/#listen) on |
 | BASE_PATH | No | / | The [base path](https://swagger.io/specification/v2/) on which the API is served, which is relative to the host |
-| CACHE_PRIVACY | No | private | [Cache response directive](https://github.com/fastify/fastify-caching) |
+| CACHE_PRIVACY | No | private | [Cache response directive](https://github.com/fastify/fastify-caching): `private`, `public` or `no-cache` |
 | CACHE_EXPIRESIN | No | 3600 | [Max age in seconds](https://github.com/fastify/fastify-caching) |
 | CACHE_SERVERCACHE | No | undefined | Max age in seconds for [shared cache](https://github.com/fastify/fastify-caching) (i.e. CDN) |
 | RATE_MAX | No | undefined | Requests allowed per minute per caller by the [rate limiter](https://github.com/fastify/fastify-rate-limit). The limiter is off when unset. |
