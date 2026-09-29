@@ -1,131 +1,150 @@
-// Simple test script for Bounds SQL query generation
-require("dotenv").config();
+const { describe, test } = require("node:test");
+const assert = require("node:assert/strict");
 
-// Set required environment variables for testing
-process.env.TABLE_NAME = process.env.TABLE_NAME || "logger_instance";
-process.env.TABLE_COLUMN = process.env.TABLE_COLUMN || "geom";
+const { parse, sql } = require("../routes/bounds");
+const { placeholders, expectedPlaceholders } = require("./helpers/statements");
 
-// Import the sql function from the actual bounds.js file
-const { sql } = require("../routes/bounds");
+const config = { tableName: "logger_instance", geomColumn: "geom" };
+const oneForm = { xformIds: [1], filters: [] };
+const isBadRequest = (error) => error.statusCode === 400;
 
-// Test cases
-const testCases = [
-    {
-        name: "Regular Form",
-        params: {},
-        query: {
-            form_id: 842230,
-        },
-    },
-    {
-        name: "Regular Form with Limit",
-        params: {},
-        query: {
-            form_id: 842230,
-            limit: 1000,
-        },
-    },
-    {
-        name: "Merged Dataset",
-        params: {},
-        query: {
-            merged_dataset_id: 852601,
-        },
-    },
-    {
-        name: "Dataview",
-        params: {},
-        query: {
-            dataview_id: 12345,
-        },
-    },
-    {
-        name: "Regular Form with Field Filter",
-        params: {},
-        query: {
-            form_id: 842230,
-            field_name: "status",
-            field_value: "approved",
-        },
-    },
-    {
-        name: "Merged Dataset with Limit",
-        params: {},
-        query: {
-            merged_dataset_id: 852601,
-            limit: 500,
-        },
-    },
-    {
-        name: "Dataview with Field Filter",
-        params: {},
-        query: {
-            dataview_id: 12345,
+const build = (query, resolved = oneForm, settings = config) =>
+    sql(parse(query), resolved, settings);
+
+describe("bounds request", () => {
+    test("names the dataset and the field filter", () => {
+        const request = parse({
+            merged_dataset_id: 9,
             field_name: "category",
             field_value: "residential",
-        },
-    },
-];
+        });
 
-console.log("=".repeat(80));
-console.log("Bounds SQL Query Generation Tests");
-console.log("=".repeat(80));
+        assert.deepEqual(request, {
+            dataset: { formId: null, dataviewId: null, mergedDatasetId: 9 },
+            fieldFilter: { name: "category", value: "residential" },
+        });
+    });
 
-testCases.forEach((testCase, index) => {
-    console.log(`\n${index + 1}. ${testCase.name}`);
-    console.log("-".repeat(80));
-    console.log("Parameters:", JSON.stringify(testCase.params, null, 2));
-    console.log("Query:", JSON.stringify(testCase.query, null, 2));
-    console.log("\nGenerated SQL:");
-    console.log("-".repeat(80));
+    for (const [label, query] of [
+        ["without a field name", { form_id: 1, field_value: "x" }],
+        ["with an empty field name", { form_id: 1, field_name: "", field_value: "x" }],
+    ]) {
+        test(`rejects a field value ${label}`, () => {
+            assert.throws(
+                () => parse(query),
+                (error) =>
+                    error.statusCode === 400 &&
+                    /field_name and field_value/.test(error.message),
+            );
+        });
+    }
 
-    try {
-        const generatedSql = sql(testCase.params, testCase.query);
-        console.log(generatedSql);
+    test("takes neither given as no filter at all", () => {
+        assert.equal(parse({ form_id: 1 }).fieldFilter, null);
+    });
 
-        // Basic validation
-        const hasRelevantXforms = generatedSql.includes("relevant_xforms");
-        const hasFilteredData = generatedSql.includes("filtered_data");
-        const hasDataviewFilters = generatedSql.includes("dataview_filters");
-        const hasBounds = generatedSql.includes("ST_XMin") &&
-                         generatedSql.includes("ST_YMin") &&
-                         generatedSql.includes("ST_XMax") &&
-                         generatedSql.includes("ST_YMax");
+    test("ignores the retired limit parameter", () => {
+        assert.deepEqual(
+            parse({ form_id: 1, limit: "1000" }),
+            parse({ form_id: 1 }),
+        );
+    });
 
-        console.log("\nValidation:");
-        console.log(`  ✓ Has relevant_xforms CTE: ${hasRelevantXforms ? "YES" : "NO"}`);
-        console.log(`  ✓ Has filtered_data CTE: ${hasFilteredData ? "YES" : "NO"}`);
-        console.log(`  ✓ Has dataview_filters CTE: ${hasDataviewFilters ? "YES" : "NO"}`);
-        console.log(`  ✓ Returns bounds (xMin, yMin, xMax, yMax): ${hasBounds ? "YES" : "NO"}`);
+    const invalid = [
+        ["a field name without a value", { form_id: 1, field_name: "status" }],
+        [
+            "a repeated field value",
+            { form_id: 1, field_name: "a", field_value: ["x", "y"] },
+        ],
+        ["no dataset id", {}],
+        ["two dataset ids", { form_id: 1, merged_dataset_id: 2 }],
+        ["a text dataset id", { form_id: "1 OR 1=1" }],
+    ];
 
-        // Check which parameter is being used
-        if (testCase.query.form_id) {
-            console.log(`  ✓ Uses form_id: ${generatedSql.includes(`SELECT ${testCase.query.form_id}`) ? "YES" : "NO"}`);
-        }
-        if (testCase.query.merged_dataset_id) {
-            console.log(`  ✓ Uses merged_dataset_id: ${generatedSql.includes(`mergedxform_id = ${testCase.query.merged_dataset_id}`) ? "YES" : "NO"}`);
-        }
-        if (testCase.query.dataview_id) {
-            console.log(`  ✓ Uses dataview_id: ${generatedSql.includes(`id = ${testCase.query.dataview_id}`) ? "YES" : "NO"}`);
-        }
-        if (testCase.query.limit) {
-            console.log(`  ✓ Uses LIMIT: ${generatedSql.includes(`LIMIT ${testCase.query.limit}`) ? "YES" : "NO"}`);
-        }
-        if (testCase.query.field_name && testCase.query.field_value) {
-            console.log(`  ✓ Uses field filter: ${generatedSql.includes(`json->>'${testCase.query.field_name}'='${testCase.query.field_value}'`) ? "YES" : "NO"}`);
-        }
-
-    } catch (error) {
-        console.error("ERROR:", error.message);
+    for (const [label, query] of invalid) {
+        test(`rejects ${label} as a bad request`, () => {
+            assert.throws(() => parse(query), isBadRequest);
+        });
     }
 });
 
-console.log("\n" + "=".repeat(80));
-console.log("Tests completed!");
-console.log("=".repeat(80));
-console.log("\nTo run these queries against your database:");
-console.log("1. Copy a generated SQL query from above");
-console.log("2. Connect to your PostgreSQL database");
-console.log("3. Run: psql -d your_database");
-console.log("4. Paste and execute the query");
-console.log("\nNote: Queries with NULL values won't return results but should execute without errors.");
+describe("bounds statement", () => {
+    test("binds the forms instead of inlining them", () => {
+        const { text, values } = build(
+            { merged_dataset_id: 9 },
+            { xformIds: [842230, 842231], filters: [] },
+        );
+
+        assert.doesNotMatch(text, /842230|842231/);
+        assert.deepEqual(values[0], [842230, 842231]);
+    });
+
+    test("reads the submissions table only", () => {
+        const { text } = build({ dataview_id: 8 });
+
+        assert.doesNotMatch(text, /logger_dataview|logger_mergedxform_xforms/);
+        assert.doesNotMatch(text, /LIMIT/i);
+    });
+
+    test("binds the field filter name and value", () => {
+        const { text, values } = build({
+            form_id: 1,
+            field_name: "category",
+            field_value: "residential",
+        });
+
+        assert.doesNotMatch(text, /category|residential/);
+        assert.ok(values.includes("category"));
+        assert.ok(values.includes("residential"));
+    });
+
+    test("keeps hostile field filter text out of the statement", () => {
+        const hostile = "x' OR '1'='1";
+
+        const { text, values } = build({
+            form_id: 1,
+            field_name: "status",
+            field_value: hostile,
+        });
+
+        assert.doesNotMatch(text, /OR '1'/);
+        assert.ok(values.includes(hostile));
+    });
+
+    for (const query of [
+        { form_id: 1 },
+        { dataview_id: 1 },
+        { merged_dataset_id: 1 },
+        { form_id: 1, field_name: "a", field_value: "b" },
+    ]) {
+        test(`supplies one value per placeholder for ${JSON.stringify(query)}`, () => {
+            const filters = [{ column: "grade", filter: ">", value: "a" }];
+
+            const { text, values } = build(query, { xformIds: [1, 2], filters });
+
+            assert.deepEqual(placeholders(text), expectedPlaceholders(values));
+        });
+    }
+
+    test("quotes the table and geometry column", () => {
+        const { text } = build({ form_id: 1 }, oneForm, {
+            tableName: "submissions",
+            geomColumn: "shape",
+        });
+
+        assert.match(text, /"submissions" i\b/);
+        assert.match(text, /i\."shape"/);
+        assert.doesNotMatch(text, /i\.geom\b/);
+    });
+
+    test("refuses a geometry column that is not an identifier", () => {
+        assert.throws(
+            () =>
+                build({ form_id: 1 }, oneForm, {
+                    ...config,
+                    geomColumn: "geom) FROM x --",
+                }),
+            /identifier/,
+        );
+    });
+});
