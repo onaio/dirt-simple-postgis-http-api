@@ -7,6 +7,7 @@ const { withApp, query } = require("./helpers/app");
 const database = require("./helpers/database");
 const {
     WORLD_TILE,
+    tileAt,
     layerFeatures,
     layerNames,
     tileIds,
@@ -266,6 +267,29 @@ describe("mvt route against PostGIS", { skip }, () => {
 
 describe("mvt route table configuration against PostGIS", { skip }, () => {
     before(database.resetDatabase);
+
+    test("the configured geometry column is the one drawn", async () => {
+        const moved = { lng: NAIROBI.lng + 10, lat: NAIROBI.lat + 10 };
+        const shaped = { TABLE_NAME: "shaped_instance", TABLE_COLUMN: "shape" };
+        await database.run(`
+            DROP TABLE IF EXISTS shaped_instance;
+            CREATE TABLE shaped_instance AS
+                SELECT id, xform_id, json, deleted_at, geom,
+                       ST_Translate(geom, 10, 10) AS shape
+                FROM logger_instance;
+        `);
+
+        const where = { form_id: OWN_FORM };
+        const there = await fetchTile(where, tileAt(moved, 10), shaped);
+        const here = await fetchTile(where, tileAt(NAIROBI, 10), shaped);
+
+        assert.equal(there.statusCode, 200);
+        assert.deepEqual(
+            tileProperties(there, "shaped_instance").map(({ id }) => id),
+            [NAIROBI.id],
+        );
+        assert.equal(here.statusCode, 204);
+    });
 
     test("a schema-qualified table is read and names the layer", async () => {
         const response = await fetchTile({ form_id: OWN_FORM }, WORLD_TILE, {

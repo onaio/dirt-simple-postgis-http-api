@@ -84,21 +84,22 @@ const sql = ({ tile, fieldFilter, idColumn }, resolved, config) => {
         idColumn === null ? statement`` : statement`, ${identifier(idColumn)}`;
     const featureIdName =
         idColumn === null ? statement`` : statement`, ${idColumn}::text`;
+    const geometry = statement`i.${identifier(config.geomColumn)}`;
 
     return render(statement`
     WITH mvtgeom2 as (
       SELECT
         i.id,
         i.json,
-        i.geom
+        ${geometry} AS geom
       FROM
         ${qualifiedName(config.tableName)} i
       WHERE
         ${submissionConditions(resolved, fieldFilter)}
-        AND i.geom is not null
+        AND ${geometry} is not null
         -- Spatial filter BEFORE transform to use spatial index
         -- Use && operator for bounding box intersection (uses GIST index)
-        AND i.geom && ST_Transform(${envelope}, 4326)
+        AND ${geometry} && ST_Transform(${envelope}, 4326)
     ), mvtgeom as (
       SELECT
         ST_AsMVTGeom (geom, ${envelope}) as geom,

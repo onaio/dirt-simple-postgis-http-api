@@ -3,6 +3,17 @@ const Protobuf = require("pbf");
 
 const WORLD_TILE = "/v1/mvt/0/0/0";
 
+const tileAt = ({ lng, lat }, z) => {
+    const latitude = (lat * Math.PI) / 180;
+    const x = Math.floor(((lng + 180) / 360) * 2 ** z);
+    const y = Math.floor(
+        ((1 - Math.log(Math.tan(latitude) + 1 / Math.cos(latitude)) / Math.PI) /
+            2) *
+            2 ** z,
+    );
+    return `/v1/mvt/${z}/${x}/${y}`;
+};
+
 const layerFeatures = (payload, layerName) => {
     const layer = new VectorTile(new Protobuf(payload)).layers[layerName];
     if (!layer) {
@@ -30,6 +41,7 @@ const tileIds = (response) =>
 
 module.exports = {
     WORLD_TILE,
+    tileAt,
     layerFeatures,
     layerNames,
     tileProperties,

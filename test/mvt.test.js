@@ -208,6 +208,27 @@ describe("mvt statement", () => {
         assert.match(text, /"logger_instance" i\b/);
     });
 
+    test("reads the geometry from the configured column", () => {
+        const { text } = build(tile, { form_id: 1 }, oneForm, {
+            ...config,
+            geomColumn: "shape",
+        });
+
+        assert.match(text, /i\."shape"/);
+        assert.doesNotMatch(text, /i\.geom\b|i\."geom"/);
+    });
+
+    test("refuses a geometry column that is not an identifier", () => {
+        assert.throws(
+            () =>
+                build(tile, { form_id: 1 }, oneForm, {
+                    ...config,
+                    geomColumn: "geom) OR true --",
+                }),
+            /identifier/,
+        );
+    });
+
     test("names the layer after the table through a bound value", () => {
         const { values } = build(tile, { form_id: 1 }, oneForm, {
             ...config,
