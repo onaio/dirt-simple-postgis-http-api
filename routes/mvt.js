@@ -106,7 +106,6 @@ const sql = ({ tile, fieldFilter, idColumn }, resolved, config) => {
   `);
 };
 
-// route schema
 const schema = {
     description:
         "Return submissions as Mapbox Vector Tile (MVT). The layer name returned is the name of the table.",
@@ -169,7 +168,6 @@ const schema = {
 
 const isEmpty = (rows) => rows.length === 0 || rows[0].mvt.length === 0;
 
-// create route
 module.exports = function (fastify, opts, next) {
     fastify.route({
         method: "GET",

@@ -43,7 +43,6 @@ const sql = ({ fieldFilter }, resolved, config) => {
   `)
 }
 
- // route schema
 const schema = {
   description:
     'Returns forms map bounds',
@@ -75,7 +74,6 @@ const schema = {
   }
 }
 
-// create route
 module.exports = function (fastify, opts, next) {
   fastify.route({
     method: 'GET',

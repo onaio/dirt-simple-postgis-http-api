@@ -67,6 +67,48 @@ const refuseFragment = async (request, reply) => {
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
 
+const registerPlugins = (fastify, env) => {
+    fastify.register(require("@fastify/cors"), { origin: allowedOrigins(env) });
+    fastify.register(require("@fastify/postgres"), postgresOptions(env));
+    fastify.register(watchIdleConnections);
+    fastify.register(require("@fastify/compress"), {
+        customTypes: /x-protobuf$/,
+    });
+    fastify.register(require("@fastify/caching"), cachingOptions(env));
+    fastify.register(require("@fastify/swagger"), swaggerOptions(env));
+};
+
+const registerRoutes = (fastify, env) => {
+    fastify.register(require("@fastify/autoload"), {
+        dir: path.join(__dirname, "routes"),
+        options: {
+            tableName: env.TABLE_NAME,
+            geomColumn: env.TABLE_COLUMN,
+        },
+    });
+
+    fastify.get(
+        "/health-check",
+        { logLevel: "warn", config: { public: true } },
+        (request, reply) => {
+            reply.send("healthy");
+        },
+    );
+};
+
+// Added once the plugins have loaded, so that their hooks run first: a
+// refusal can be read across origins, and a rate-limited request costs the
+// permission service nothing.
+const addHooks = (fastify, { rateLimit, permissionCheck }) => {
+    fastify.addHook("onRequest", refuseFragment);
+    if (rateLimit !== null) {
+        fastify.addHook("onRequest", fastify.rateLimit());
+    }
+    // Asked after the request has been checked against the route's schema,
+    // so that one the schema refuses costs nothing upstream.
+    fastify.addHook("preHandler", permissionCheck);
+};
+
 async function build(env) {
     checkConfiguration(env);
     const rateLimit = requestsPerMinute(env);
@@ -84,12 +126,6 @@ async function build(env) {
     fastify.setNotFoundHandler(handleNotFound);
     fastify.addHook("onSend", keepNoFailure);
 
-    // CORS
-    fastify.register(require("@fastify/cors"), {
-        origin: allowedOrigins(env),
-    });
-
-    // OPTIONAL RATE LIMITER
     if (rateLimit !== null) {
         fastify.register(import("@fastify/rate-limit"), {
             global: false,
@@ -98,51 +134,9 @@ async function build(env) {
             allowList: isPublicRoute,
         });
     }
-
-    // Added once the plugins above have loaded, so that their hooks run
-    // first: a refusal can be read across origins, and a rate-limited request
-    // costs the permission service nothing.
-    fastify.after(() => {
-        fastify.addHook("onRequest", refuseFragment);
-        if (rateLimit !== null) {
-            fastify.addHook("onRequest", fastify.rateLimit());
-        }
-        // Asked after the request has been checked against the route's
-        // schema, so that one the schema refuses costs nothing upstream.
-        fastify.addHook("preHandler", permissionCheck);
-    });
-
-    fastify.register(require("@fastify/postgres"), postgresOptions(env));
-    fastify.register(watchIdleConnections);
-
-    // COMPRESSION
-    // add x-protobuf
-    fastify.register(require("@fastify/compress"), {
-        customTypes: /x-protobuf$/,
-    });
-
-    // CACHE SETTINGS
-    fastify.register(require("@fastify/caching"), cachingOptions(env));
-
-    // INITIALIZE SWAGGER
-    fastify.register(require("@fastify/swagger"), swaggerOptions(env));
-
-    // ADD ROUTES
-    fastify.register(require("@fastify/autoload"), {
-        dir: path.join(__dirname, "routes"),
-        options: {
-            tableName: env.TABLE_NAME,
-            geomColumn: env.TABLE_COLUMN,
-        },
-    });
-
-    fastify.get(
-        "/health-check",
-        { logLevel: "warn", config: { public: true } },
-        (request, reply) => {
-            reply.send("healthy");
-        },
-    );
+    registerPlugins(fastify, env);
+    fastify.after(() => addHooks(fastify, { rateLimit, permissionCheck }));
+    registerRoutes(fastify, env);
 
     return fastify;
 }
