@@ -49,6 +49,18 @@ describe("redactUrl", () => {
         });
     }
 
+    test("hides a temp token whose name cannot be decoded", () => {
+        const redacted = redactUrl("/v1/bounds?temp_token%ZZ=abc123&temp_token=def456");
+
+        assert.doesNotMatch(redacted, /def456/);
+    });
+
+    test("leaves a name that cannot be decoded and is no secret alone", () => {
+        const url = "/v1/bounds?form%ZZ=7";
+
+        assert.equal(redactUrl(url), url);
+    });
+
     test("keeps what is not the temp token when the query follows a semicolon", () => {
         const redacted = redactUrl("/v1/bounds;form_id=7&temp_token=abc123");
 
