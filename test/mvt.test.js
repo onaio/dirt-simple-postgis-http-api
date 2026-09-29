@@ -37,14 +37,22 @@ describe("mvt request", () => {
         assert.equal(request.idColumn, null);
     });
 
-    test("ignores a field value given without a field name", () => {
-        const unfiltered = parse(tile, { form_id: 1 });
+    for (const [label, query] of [
+        ["without a field name", { form_id: 1, field_value: "x" }],
+        ["with an empty field name", { form_id: 1, field_name: "", field_value: "x" }],
+    ]) {
+        test(`rejects a field value ${label}`, () => {
+            assert.throws(
+                () => parse(tile, query),
+                (error) =>
+                    error.statusCode === 400 &&
+                    /field_name and field_value/.test(error.message),
+            );
+        });
+    }
 
-        assert.deepEqual(parse(tile, { form_id: 1, field_value: "x" }), unfiltered);
-        assert.deepEqual(
-            parse(tile, { form_id: 1, field_name: "", field_value: "x" }),
-            unfiltered,
-        );
+    test("takes neither given as no filter at all", () => {
+        assert.equal(parse(tile, { form_id: 1 }).fieldFilter, null);
     });
 
     const invalid = [

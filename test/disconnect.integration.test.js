@@ -140,9 +140,9 @@ describe("a caller that leaves before the answer is ready", { skip }, () => {
         });
 
         const { rows } = await database.run(
-            "SELECT last_value::int AS started FROM statements_started",
+            "SELECT is_called, last_value::int AS started FROM statements_started",
         );
-        assert.deepEqual(rows, [{ started: 1 }]);
+        assert.deepEqual(rows, [{ is_called: true, started: 1 }]);
     });
 
     test("counts a statement for each caller that stays", async () => {
@@ -163,9 +163,9 @@ describe("a caller that leaves before the answer is ready", { skip }, () => {
         });
 
         const { rows } = await database.run(
-            "SELECT last_value::int AS started FROM statements_started",
+            "SELECT is_called, last_value::int AS started FROM statements_started",
         );
-        assert.deepEqual(rows, [{ started: 2 }]);
+        assert.deepEqual(rows, [{ is_called: true, started: 2 }]);
     });
 
     test("leaves the connection fit for the next caller", async () => {

@@ -1,4 +1,4 @@
-const { describe, test } = require("node:test");
+const { describe, test, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const net = require("node:net");
@@ -58,9 +58,22 @@ const connection = (answers, events = recorder()) => {
     return { client, asked: () => asked };
 };
 
-const neverCalled = () => {
-    throw new Error("no cancel was expected");
+// Counted rather than thrown, because readSubmissions answers a caller that
+// has gone whatever went wrong while it was being read.
+let unexpectedCancels = 0;
+
+const neverCalled = async () => {
+    unexpectedCancels += 1;
+    return true;
 };
+
+beforeEach(() => {
+    unexpectedCancels = 0;
+});
+
+afterEach(() => {
+    assert.equal(unexpectedCancels, 0, "a cancel was sent unasked");
+});
 
 const read = (database, reply, options = {}) =>
     readSubmissions({
