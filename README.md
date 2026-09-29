@@ -12,7 +12,7 @@ The Dirt-Simple PostGIS HTTP API, or `dirt`, exposes PostGIS functionality to yo
 
 - [Node](https://nodejs.org/)
 - [PostgreSQL](https://postgresql.org/) 12 or later, with [PostGIS 3](https://postgis.net/)
-- A PostgreSQL login for the service that has select rights to any tables or views you want to expose to dirt.
+- A PostgreSQL login for the service with select rights on the submissions table, `logger_dataview`, `logger_mergedxform_xforms` and `logger_xform`, and on nothing else.
 
 ### Step 1: get the goodies
 
@@ -59,7 +59,7 @@ This is the complete complete list of environmental variables that can be set.
 | CACHE_EXPIRESIN | No | 3600 | [Max age in seconds](https://github.com/fastify/fastify-caching) |
 | CACHE_SERVERCACHE | No | undefined | Max age in seconds for [shared cache](https://github.com/fastify/fastify-caching) (i.e. CDN) |
 | RATE_MAX | No | undefined | Requests allowed per minute per caller by the [rate limiter](https://github.com/fastify/fastify-rate-limit). The limiter is off when unset. |
-| TRUST_PROXY | No | false | Set when dirt runs behind a proxy, so that a caller is identified by the address the proxy forwards rather than the proxy's own. `true`, a number of hops, or a comma-separated list of proxy addresses. See [trustProxy](https://www.fastify.io/docs/latest/Reference/Server/#trustproxy). |
+| TRUST_PROXY | No | false | Set when dirt runs behind a proxy, so that a caller is identified by the address the proxy forwards rather than the proxy's own. A number of hops or a comma-separated list of proxy addresses. `true` trusts every hop, so a caller can then choose the address they are counted under and take a rate limit of their own. See [trustProxy](https://www.fastify.io/docs/latest/Reference/Server/#trustproxy). |
 | POSTGRES_STATEMENT_TIMEOUT | No | 60000 | Milliseconds a statement may run before Postgres stops it. `0` for no limit. |
 | POSTGRES_CONNECTION_TIMEOUT | No | 30000 | Milliseconds a request waits for a database connection before failing. `0` for no limit. |
 | POSTGRES_POOL_MAX | No | 10 | Most database connections held at once. Each running statement holds one. |
@@ -128,10 +128,6 @@ All routes are stored in the `routes` folder and are automatically loaded on sta
 ## Tips and Tricks
 
 ### Database
-
-Your Postgres login needs select rights on the submissions table, `logger_dataview`, `logger_mergedxform_xforms` and `logger_xform`.
-
-For security, it should have select rights on those tables _only_.
 
 Dirt uses connection pooling, minimizing database connections.
 

@@ -11,31 +11,36 @@ Each route contains three sections: sql, schema, and the Fastify route itself.
 ### sql
 
 ```javascript
-const { statement, identifier, qualifiedName, render } = require('../lib/statement')
+const { statement, identifier, qualifiedName, render } = require("../lib/statement");
+const { submissionConditions } = require("../lib/submissions");
 
-const sql = (params, query, config) => {
-  return render(statement`
-  SELECT
-    ${identifier(config.geomColumn)}
-
-  FROM
-    ${qualifiedName(config.tableName)}
-
-  WHERE
-    xform_id = ${query.form_id}::int4
-  `)
-}
+const sql = ({ fieldFilter }, resolved, config) =>
+    render(statement`
+    SELECT
+      ${identifier(config.geomColumn)}
+    FROM
+      ${qualifiedName(config.tableName)} i
+    WHERE
+      ${submissionConditions(resolved, fieldFilter)}
+  `);
 ```
 
 The `sql` function returns `{ text, values }` for execution by the Postgres server.
 
-Anything interpolated into a `statement` is sent to Postgres as a bound parameter, never as SQL text, so a value from the request cannot change the statement. `text` above ends in `xform_id = $1::int4` and `values` is `[query.form_id]`. Cast each parameter, since Postgres cannot always infer its type.
+Anything interpolated into a `statement` is sent to Postgres as a bound parameter, never as SQL text, so a value from the request cannot change the statement. Cast each parameter, since Postgres cannot always infer its type.
 
 Table and column names cannot be bound. Pass them through `identifier` or `qualifiedName`, which refuse anything that is not a plain name and quote what they accept. A `statement` can be interpolated into another `statement`; its parameters are renumbered.
 
-The `params` function argument contains route parameters (i.e. parts of the URL path). The `query` function argument contains route query string arguments. The `config` argument holds `tableName` and `geomColumn`.
+`sql` is given what `parse` read from the request, the forms and filters the dataset resolved to, and a `config` holding `tableName` and `geomColumn`. Reading the request is `parse`'s work, so that a request can be refused before the database or the permission service is asked:
 
-Inputs the schema cannot fully describe are checked here. Throw `InvalidRequestError` from `lib/errors` to answer with a `400`.
+```javascript
+const parse = (query) => ({
+    dataset: parseDataset(query),
+    fieldFilter: parseFieldFilter(query),
+});
+```
+
+Inputs the schema cannot fully describe are checked in `parse`. Throw `InvalidRequestError` from `lib/errors` to answer with a `400`.
 
 ### schema
 
@@ -68,41 +73,33 @@ Fastify [recommends](https://www.fastify.io/docs/latest/Validation-and-Serializa
 ```javascript
 // create route
 module.exports = function (fastify, opts, next) {
-  fastify.route({
-    method: 'GET',
-    url: '/bounds',
-    schema: schema,
-    handler: function (request, reply) {
-      const { text, values } = sql(request.params, request.query, opts)
+    fastify.route({
+        method: "GET",
+        url: "/bounds",
+        schema: schema,
+        handler: async function (request, reply) {
+            const asked = parse(request.query);
 
-      fastify.pg.connect(onConnect)
+            const rows = await readSubmissions({
+                pg: fastify.pg,
+                request,
+                reply,
+                dataset: asked.dataset,
+                build: (resolved) => sql(asked, resolved, opts),
+            });
 
-      function onConnect(err, client, release) {
-        if (err) {
-          request.log.error(err)
-          return reply.code(500).send({ error: 'Database connection error.' })
-        }
+            return reply.send(rows.length > 0 ? rows[0] : NO_BOUNDS);
+        },
+    });
+    next();
+};
 
-        client.query(text, values, function onResult(err, result) {
-          release()
-          if (err) {
-            request.log.error(err)
-            return reply.code(500).send({ error: 'Query failed.' })
-          }
-          return reply.send(result.rows[0])
-        })
-      }
-    }
-  })
-  next()
-}
-
-module.exports.autoPrefix = '/v1'
+module.exports.autoPrefix = "/v1";
 ```
 
-Fastify's [route documentation](https://www.fastify.io/docs/latest/Routes/) is excellent if anything here looks confusing. Log a database error and answer with a fixed message; the error's own text describes the schema and stays out of the response.
+`readSubmissions` from `lib/reading` takes a connection from the pool, looks the dataset up, runs the statement `build` returns, and gives the connection back. It stops the statement when the caller goes away, and answers with no rows in that case, so a handler has nothing to do about it. A failure becomes a `500` whose text says nothing about the database.
 
-Route versioning is handled by the final line in the file.
+Fastify's [route documentation](https://www.fastify.io/docs/latest/Routes/) is excellent if anything here looks confusing. Route versioning is handled by the final line in the file.
 
 ```javascript
 module.exports.autoPrefix = '/v1'
