@@ -37,6 +37,14 @@ const handleError = (error, request, reply) => {
     });
 };
 
+// The pool reports a connection lost while it waited to be used as an error
+// of its own. With nobody listening, that error ends the process.
+const watchIdleConnections = async (fastify) => {
+    fastify.pg.pool.on("error", (error) =>
+        fastify.log.warn({ code: error.code }, "idle database connection lost"),
+    );
+};
+
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
 
@@ -79,6 +87,7 @@ async function build(env) {
     });
 
     fastify.register(require("@fastify/postgres"), postgresOptions(env));
+    fastify.register(watchIdleConnections);
 
     // COMPRESSION
     // add x-protobuf

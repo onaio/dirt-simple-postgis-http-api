@@ -39,7 +39,7 @@ const response = ({ destroyed = false } = {}) => ({
 // the given delay, and records what happened to it.
 const connection = (answers, events = recorder()) => {
     let asked = [];
-    const client = {
+    const client = Object.assign(new EventEmitter(), {
         activeQuery: null,
         connectionParameters: { host: "127.0.0.1", port: 1 },
         query: (submitted) => {
@@ -54,7 +54,7 @@ const connection = (answers, events = recorder()) => {
         },
         release: (discard) =>
             events.note(discard ? "connection discarded" : "connection kept"),
-    };
+    });
     return { client, asked: () => asked };
 };
 
@@ -176,6 +176,29 @@ describe("readSubmissions", () => {
         await read(connection([{ rows: [] }]), reply);
 
         assert.equal(reply.raw.listenerCount("close"), 0);
+    });
+
+    test("discards a connection that was lost while it was held", async () => {
+        const events = recorder();
+        const database = connection([{ rows: [{ id: 1 }] }], events);
+
+        const reading = read(database, response());
+        await pause(5);
+        database.client.emit("error", new Error("Connection terminated"));
+
+        assert.deepEqual(await reading, [{ id: 1 }]);
+        assert.deepEqual(events.entries(), [
+            "statement ended",
+            "connection discarded",
+        ]);
+    });
+
+    test("stops listening to the connection once it is done", async () => {
+        const database = connection([{ rows: [] }]);
+
+        await read(database, response());
+
+        assert.equal(database.client.listenerCount("error"), 0);
     });
 });
 

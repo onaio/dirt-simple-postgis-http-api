@@ -57,7 +57,8 @@ const DEFINITIONS = [
 
 const SCHEMA = `
     CREATE EXTENSION IF NOT EXISTS postgis;
-    DROP VIEW IF EXISTS slow_instance, brief_instance, counted_instance;
+    DROP VIEW IF EXISTS
+        slow_instance, brief_instance, counted_instance, held_instance;
     DROP SEQUENCE IF EXISTS statements_started;
     DROP TABLE IF EXISTS
         logger_instance, logger_dataview, logger_mergedxform_xforms, logger_xform,

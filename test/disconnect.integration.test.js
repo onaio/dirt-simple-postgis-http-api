@@ -4,10 +4,15 @@ const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
-const { setTimeout: pause } = require("node:timers/promises");
 
 const { withApp } = require("./helpers/app");
 const database = require("./helpers/database");
+const {
+    heldView,
+    runningStatements,
+    until,
+    expectSoon,
+} = require("./helpers/held");
 
 const { OWN_FORM } = database;
 
@@ -28,41 +33,6 @@ const env = {
     POSTGRES_POOL_MAX: "1",
     TABLE_NAME: "slow_instance",
 };
-
-// A copy of the submissions that holds each statement reading it for a
-// while, once, and counts the statement.
-const heldView = (name, seconds) => `
-    CREATE VIEW ${name} AS
-        WITH held AS MATERIALIZED (
-            SELECT nextval('statements_started'), pg_sleep(${seconds})
-        )
-        SELECT l.* FROM logger_instance l CROSS JOIN held;
-`;
-
-const runningStatements = async () => {
-    const { rows } = await database.run(`
-        SELECT count(*)::int AS running
-        FROM pg_stat_activity
-        WHERE state = 'active'
-          AND pid <> pg_backend_pid()
-          AND query LIKE '%slow_instance%'
-    `);
-    return rows[0].running;
-};
-
-const until = async (condition, timeout = 5000) => {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-        if (await condition()) {
-            return true;
-        }
-        await pause(50);
-    }
-    return false;
-};
-
-const expectSoon = async (condition, otherwise) =>
-    assert.equal(await until(condition), true, otherwise);
 
 const listening = (settings, run) =>
     withApp({ env: { ...env, ...settings } }, async ({ app }) => {
