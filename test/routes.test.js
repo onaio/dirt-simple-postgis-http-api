@@ -122,11 +122,52 @@ describe("database connection", () => {
 
     const sslOptions = async (env) => (await poolOptions(env)).ssl;
 
-    test("sets no time limits unless configured", async () => {
+    test("gives a statement a minute and the wait for a connection half of one unless configured", async () => {
         const options = await poolOptions({});
 
+        assert.equal(options.statement_timeout, 60000);
+        assert.equal(options.connectionTimeoutMillis, 30000);
+    });
+
+    for (const name of [
+        "POSTGRES_STATEMENT_TIMEOUT",
+        "POSTGRES_CONNECTION_TIMEOUT",
+        "POSTGRES_POOL_MAX",
+    ]) {
+        test(`${name} left empty is taken as not configured`, async () => {
+            assert.deepEqual(
+                await poolOptions({ [name]: "" }),
+                await poolOptions({}),
+            );
+        });
+    }
+
+    test("a statement timeout of 0 lifts the limit", async () => {
+        const options = await poolOptions({
+            POSTGRES_STATEMENT_TIMEOUT: "0",
+        });
+
         assert.equal(options.statement_timeout, undefined);
+        assert.equal(options.connectionTimeoutMillis, 30000);
+    });
+
+    test("a connection timeout of 0 lifts the limit", async () => {
+        const options = await poolOptions({
+            POSTGRES_CONNECTION_TIMEOUT: "0",
+        });
+
         assert.equal(options.connectionTimeoutMillis, undefined);
+        assert.equal(options.statement_timeout, 60000);
+    });
+
+    test("takes the longest time a timer can hold", async () => {
+        const options = await poolOptions({
+            POSTGRES_STATEMENT_TIMEOUT: "2147483647",
+            POSTGRES_CONNECTION_TIMEOUT: "2147483647",
+        });
+
+        assert.equal(options.statement_timeout, 2147483647);
+        assert.equal(options.connectionTimeoutMillis, 2147483647);
     });
 
     test("keeps the default number of connections unless configured", async () => {
@@ -157,16 +198,18 @@ describe("database connection", () => {
         assert.equal(options.connectionTimeoutMillis, 5000);
     });
 
-    for (const name of [
-        "POSTGRES_STATEMENT_TIMEOUT",
-        "POSTGRES_CONNECTION_TIMEOUT",
-        "POSTGRES_POOL_MAX",
-    ]) {
-        for (const value of ["abc", "0", "-1", "1.5", "", "30s"]) {
+    const refused = [
+        ["POSTGRES_STATEMENT_TIMEOUT", ["abc", "-1", "1.5", "30s", "2147483648", "3000000000"]],
+        ["POSTGRES_CONNECTION_TIMEOUT", ["abc", "-1", "1.5", "30s", "2147483648", "3000000000"]],
+        ["POSTGRES_POOL_MAX", ["abc", "0", "-1", "1.5", "30s", "2147483648"]],
+    ];
+
+    for (const [name, values] of refused) {
+        for (const value of values) {
             test(`build refuses to start with ${name} set to ${JSON.stringify(value)}`, async () => {
                 await assert.rejects(
                     () => build(testEnv({ [name]: value })),
-                    new RegExp(`${name} must be a positive integer`),
+                    new RegExp(`${name} must be`),
                 );
             });
         }
@@ -322,7 +365,17 @@ describe("rate limiting", () => {
         });
     });
 
-    for (const value of ["abc", "0", "-1", "1.5", "", "10 requests"]) {
+    test("is off when the limit is left empty", async () => {
+        const app = await build(testEnv({ RATE_MAX: "" }));
+        try {
+            await app.ready();
+            assert.equal(app.hasDecorator("rateLimit"), false);
+        } finally {
+            await app.close();
+        }
+    });
+
+    for (const value of ["abc", "0", "-1", "1.5", "10 requests"]) {
         test(`build refuses to start with a limit of ${JSON.stringify(value)}`, async () => {
             await assert.rejects(
                 () => build(testEnv({ RATE_MAX: value })),

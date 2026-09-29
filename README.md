@@ -60,8 +60,8 @@ This is the complete complete list of environmental variables that can be set.
 | CACHE_SERVERCACHE | No | undefined | Max age in seconds for [shared cache](https://github.com/fastify/fastify-caching) (i.e. CDN) |
 | RATE_MAX | No | undefined | Requests allowed per minute per caller by the [rate limiter](https://github.com/fastify/fastify-rate-limit). The limiter is off when unset. |
 | TRUST_PROXY | No | false | Set when dirt runs behind a proxy, so that a caller is identified by the address the proxy forwards rather than the proxy's own. `true`, a number of hops, or a comma-separated list of proxy addresses. See [trustProxy](https://www.fastify.io/docs/latest/Reference/Server/#trustproxy). |
-| POSTGRES_STATEMENT_TIMEOUT | No | undefined | Milliseconds a statement may run before Postgres stops it. No limit when unset. |
-| POSTGRES_CONNECTION_TIMEOUT | No | undefined | Milliseconds a request waits for a database connection before failing. No limit when unset. |
+| POSTGRES_STATEMENT_TIMEOUT | No | 60000 | Milliseconds a statement may run before Postgres stops it. `0` for no limit. |
+| POSTGRES_CONNECTION_TIMEOUT | No | 30000 | Milliseconds a request waits for a database connection before failing. `0` for no limit. |
 | POSTGRES_POOL_MAX | No | 10 | Most database connections held at once. Each running statement holds one. |
 | SSL_ROOT_CERT | No | undefined | Contents of a CA certificate for connecting over SSL. Use this if you need to store the entire certificate in an environment variable, e.g. for Docker. |
 | SSL_ROOT_CERT_PATH | No | undefined | Path to a CA certificate file for connecting over SSL. Note that setting `SSL_ROOT_CERT` overrides this. |
