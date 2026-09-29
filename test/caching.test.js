@@ -40,6 +40,20 @@ describe("how an answer is said to be kept", () => {
         );
     });
 
+    test("by nobody, when the lifetime is zero", async () => {
+        assert.equal(
+            await keptWith({ CACHE_EXPIRESIN: "0" }),
+            "private, max-age=0",
+        );
+    });
+
+    test("by nobody sharing, when the shared lifetime is zero", async () => {
+        assert.equal(
+            await keptWith({ CACHE_PRIVACY: "public", CACHE_SERVERCACHE: "0" }),
+            "public, max-age=3600, s-maxage=0",
+        );
+    });
+
     test("as by default when the settings are left empty", async () => {
         assert.equal(
             await keptWith({
