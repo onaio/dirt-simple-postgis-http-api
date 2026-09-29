@@ -68,6 +68,25 @@ describe("redactUrl", () => {
         assert.match(redacted, /form_id=7/);
     });
 
+    const alongside = [
+        ["a path that holds a pair", "/v1/foo=bar?temp_token=abc123&form_id=7"],
+        ["a path of several pairs", "/a=1/b=2?temp_token=abc123"],
+        ["a path that ends in an equals sign", "/v1/x=?temp_token=abc123"],
+        ["a value that holds a question mark before the query", "/v1/a=b?c=d?temp_token=abc123"],
+    ];
+
+    for (const [label, url] of alongside) {
+        test(`hides a temp token beside ${label}`, () => {
+            assert.doesNotMatch(redactUrl(url), /abc123/);
+        });
+    }
+
+    test("leaves a path that holds a pair as it is", () => {
+        const redacted = redactUrl("/v1/foo=bar?temp_token=abc123");
+
+        assert.match(redacted, /^\/v1\/foo=bar\?/);
+    });
+
     test("hides a temp token that contains a question mark", () => {
         const redacted = redactUrl("/v1/bounds?temp_token=abc?def123");
 

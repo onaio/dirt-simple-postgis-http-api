@@ -396,16 +396,12 @@ describe("permission check: rejected before any upstream call", () => {
 describe("permission check: logging", () => {
     const TOKEN = "s3cretT0kenValue";
 
-    const loggedDuring = async (respond) => {
+    const loggedDuring = async (respond, url = `${PROBE}?form_id=7&temp_token=${TOKEN}`) => {
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), "dirt-log-"));
         const logFile = path.join(directory, "server.log");
         const env = { SERVER_LOGGER: "info", SERVER_LOGGER_PATH: logFile };
         try {
-            await withApp({ respond, env }, ({ app }) =>
-                app.inject({
-                    url: `${PROBE}?form_id=7&temp_token=${TOKEN}`,
-                }),
-            );
+            await withApp({ respond, env }, ({ app }) => app.inject({ url }));
             return fs.readFileSync(logFile, "utf8");
         } finally {
             fs.rmSync(directory, { recursive: true, force: true });
@@ -425,4 +421,28 @@ describe("permission check: logging", () => {
         assert.match(logged, /form_id=7/);
         assert.doesNotMatch(logged, new RegExp(TOKEN));
     });
+
+    const refused = [
+        ["names no route", `/v1/nowhere?form_id=7&temp_token=${TOKEN}`],
+        [
+            "names a route through a path that holds a pair",
+            `/v1/foo=bar?temp_token=${TOKEN}&form_id=7`,
+        ],
+        [
+            "names no dataset",
+            `${PROBE}?form_id=&temp_token=${TOKEN}`,
+        ],
+        [
+            "gives the token twice",
+            `${PROBE}?form_id=7&temp_token=${TOKEN}&temp_token=${TOKEN}`,
+        ],
+    ];
+
+    for (const [label, url] of refused) {
+        test(`a request that ${label} is logged without the temp token`, async () => {
+            const logged = await loggedDuring(() => ({ status: 200 }), url);
+
+            assert.doesNotMatch(logged, new RegExp(TOKEN));
+        });
+    }
 });
