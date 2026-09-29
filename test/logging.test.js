@@ -36,6 +36,26 @@ describe("redactUrl", () => {
         assert.doesNotMatch(redacted, /abc123/);
     });
 
+    for (const [label, url] of [
+        ["a semicolon", "/v1/bounds;form_id=7&temp_token=abc123"],
+        ["a hash", "/v1/bounds#form_id=7&temp_token=abc123"],
+        ["a semicolon after a question mark", "/v1/bounds?form_id=7;temp_token=abc123"],
+        ["a semicolon, its name percent-encoded", "/v1/bounds;temp%5Ftoken=abc123"],
+        ["a semicolon, its name in capitals", "/v1/bounds;TEMP_TOKEN=abc123"],
+        ["a path", "/v1/bounds/temp_token=abc123"],
+    ]) {
+        test(`hides a temp token that follows ${label}`, () => {
+            assert.doesNotMatch(redactUrl(url), /abc123/);
+        });
+    }
+
+    test("keeps what is not the temp token when the query follows a semicolon", () => {
+        const redacted = redactUrl("/v1/bounds;form_id=7&temp_token=abc123");
+
+        assert.match(redacted, /^\/v1\/bounds;/);
+        assert.match(redacted, /form_id=7/);
+    });
+
     test("hides a temp token that contains a question mark", () => {
         const redacted = redactUrl("/v1/bounds?temp_token=abc?def123");
 

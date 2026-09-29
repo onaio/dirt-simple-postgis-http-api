@@ -2,6 +2,7 @@ const { describe, test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const fs = require("node:fs");
+const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -71,6 +72,77 @@ describe("database failures", () => {
             });
         });
     }
+});
+
+// Sent as written: a client that reads the address first would leave out
+// what follows a hash.
+const statusOf = (app, target) =>
+    new Promise((resolve, reject) => {
+        const { port } = app.server.address();
+        const socket = net.connect(port, "127.0.0.1", () =>
+            socket.write(
+                `GET ${target} HTTP/1.1\r\nHost: tiles\r\nConnection: close\r\n\r\n`,
+            ),
+        );
+        const chunks = [];
+        socket.on("data", (chunk) => chunks.push(chunk));
+        socket.on("end", () =>
+            resolve(Number(Buffer.concat(chunks).toString().split(" ")[1])),
+        );
+        socket.on("error", reject);
+    });
+
+describe("what may start the query of a request", () => {
+    test("a question mark does", async () => {
+        await withApp({}, async ({ app, onadata }) => {
+            await app.listen({ port: 0, host: "127.0.0.1" });
+
+            const status = await statusOf(app, `${PROBE}?form_id=7`);
+
+            assert.equal(status, 200);
+            assert.equal(onadata.requests().length, 1);
+        });
+    });
+
+    for (const mark of [";", "#"]) {
+        test(`${mark} does not, so the request names no route`, async () => {
+            await withApp({}, async ({ app, onadata }) => {
+                await app.listen({ port: 0, host: "127.0.0.1" });
+
+                const status = await statusOf(
+                    app,
+                    `${PROBE}${mark}form_id=7&temp_token=abc`,
+                );
+
+                assert.equal(status, 404);
+                assert.deepEqual(onadata.requests(), []);
+            });
+        });
+    }
+
+    test("a hash after the query does not pass either", async () => {
+        await withApp({}, async ({ app, onadata }) => {
+            await app.listen({ port: 0, host: "127.0.0.1" });
+
+            const status = await statusOf(
+                app,
+                `${PROBE}?form_id=7#dataview_id=8`,
+            );
+
+            assert.equal(status, 404);
+            assert.deepEqual(onadata.requests(), []);
+        });
+    });
+
+    test("a semicolon inside the query separates nothing", async () => {
+        await withApp({}, async ({ app }) => {
+            const response = await app.inject({
+                url: `${PROBE}?form_id=7;dataview_id=8`,
+            });
+
+            assert.equal(response.statusCode, 400);
+        });
+    });
 });
 
 describe("requests that cannot be served", () => {

@@ -54,6 +54,16 @@ const keepNoFailure = async (request, reply) => {
     }
 };
 
+// No browser sends what follows a hash. It would be read here as a query,
+// and by nothing in front of this service.
+const refuseFragment = async (request, reply) => {
+    if (!request.raw.url.includes("#")) {
+        return undefined;
+    }
+    reply.callNotFound();
+    return reply;
+};
+
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
 
@@ -65,6 +75,9 @@ async function build(env) {
     const fastify = require("fastify")({
         logger: loggerOptions(env),
         trustProxy: trustedProxy(env),
+        // A query that began at a semicolon would be read here and by
+        // nothing in front of this service.
+        useSemicolonDelimiter: false,
     });
 
     fastify.setErrorHandler(handleError);
@@ -90,6 +103,7 @@ async function build(env) {
     // first: a refusal can be read across origins, and a rate-limited request
     // costs the permission service nothing.
     fastify.after(() => {
+        fastify.addHook("onRequest", refuseFragment);
         if (rateLimit !== null) {
             fastify.addHook("onRequest", fastify.rateLimit());
         }
