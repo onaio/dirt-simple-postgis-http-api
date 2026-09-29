@@ -93,6 +93,29 @@ describe("permission check: denied requests", () => {
         });
     }
 
+    for (const status of [301, 302, 303, 307, 308]) {
+        test(`an upstream ${status} stops the request and is not followed`, async () => {
+            const respond = ({ url }) =>
+                url === "/signed-in"
+                    ? { status: 200 }
+                    : { status, headers: { Location: "/signed-in" } };
+
+            await withApp({ respond }, async ({ app, onadata }) => {
+                const response = await app.inject({
+                    url: `${PROBE}?form_id=7&temp_token=abc`,
+                });
+
+                assert.equal(response.statusCode, 500);
+                assert.deepEqual(response.json(), {
+                    error: "Permission check failed.",
+                });
+                assert.deepEqual(outboundUrls(onadata), [
+                    "/api/v1/forms/7.json",
+                ]);
+            });
+        });
+    }
+
     test("an upstream success other than 200 stops the request", async () => {
         const respond = () => ({ status: 202 });
 

@@ -13,8 +13,11 @@ const startOnadataStub = async (respond = allowEverything) => {
                 authorization: req.headers.authorization,
             },
         ];
-        const { status, body = {} } = respond(req);
-        res.writeHead(status, { "Content-Type": "application/json" });
+        const { status, body = {}, headers = {} } = respond(req);
+        res.writeHead(status, {
+            "Content-Type": "application/json",
+            ...headers,
+        });
         res.end(JSON.stringify(body));
     });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
