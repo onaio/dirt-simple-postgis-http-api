@@ -67,6 +67,15 @@ const refuseFragment = async (request, reply) => {
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
 
+// Answered before any hook runs, so without what keepNoFailure would add. A
+// parameter too long for the router names no route.
+const handleFrameworkError = (error, request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return error.code === "FST_ERR_MAX_PARAM_LENGTH"
+        ? handleNotFound(request, reply)
+        : handleError(error, request, reply);
+};
+
 const registerPlugins = (fastify, env) => {
     fastify.register(require("@fastify/cors"), { origin: allowedOrigins(env) });
     fastify.register(require("@fastify/postgres"), postgresOptions(env));
@@ -117,9 +126,12 @@ async function build(env) {
     const fastify = require("fastify")({
         logger: loggerOptions(env),
         trustProxy: trustedProxy(env),
-        // A query that began at a semicolon would be read here and by
-        // nothing in front of this service.
-        useSemicolonDelimiter: false,
+        routerOptions: {
+            // A query that began at a semicolon would be read here and by
+            // nothing in front of this service.
+            useSemicolonDelimiter: false,
+        },
+        frameworkErrors: handleFrameworkError,
     });
 
     fastify.setErrorHandler(handleError);
@@ -131,6 +143,9 @@ async function build(env) {
             global: false,
             max: rateLimit,
             timeWindow: "1 minute",
+            // Counted per address, as the README promises, rather than per
+            // /64 subnet.
+            ipv6Subnet: 128,
             allowList: isPublicRoute,
         });
     }

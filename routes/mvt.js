@@ -112,56 +112,62 @@ const schema = {
     tags: ["feature"],
     summary: "return MVT",
     params: {
-        z: {
-            type: "integer",
-            description: "Z value of ZXY tile.",
-        },
-        x: {
-            type: "integer",
-            description: "X value of ZXY tile.",
-        },
-        y: {
-            type: "integer",
-            description: "Y value of ZXY tile.",
+        type: "object",
+        properties: {
+            z: {
+                type: "integer",
+                description: "Z value of ZXY tile.",
+            },
+            x: {
+                type: "integer",
+                description: "X value of ZXY tile.",
+            },
+            y: {
+                type: "integer",
+                description: "Y value of ZXY tile.",
+            },
         },
     },
     querystring: {
-        columns: {
-            type: "string",
-            maxLength: 1024,
-            description:
-                "Optional comma-separated list of id and json. Every feature holds both whether or not they are named.",
-        },
-        id_column: {
-            type: "string",
-            maxLength: 63,
-            description:
-                "Optional. Give id to have each feature carry the id of its submission as its feature id.",
-        },
-        form_id: {
-            type: "integer",
-            description: "ID of a regular form to query data from.",
-        },
-        merged_dataset_id: {
-            type: "integer",
-            description:
-                "ID of a merged dataset to query data from all constituent forms.",
-        },
-        dataview_id: {
-            type: "integer",
-            description:
-                "ID of a dataview to query data with applied filters.",
-        },
-        field_name: {
-            type: "string",
-            maxLength: 1024,
-            description: "Optional field name for custom JSON filtering.",
-        },
-        field_value: {
-            type: "string",
-            maxLength: 4096,
-            description:
-                "Optional field value for custom JSON filtering (used with field_name).",
+        type: "object",
+        properties: {
+            columns: {
+                type: "string",
+                maxLength: 1024,
+                description:
+                    "Optional comma-separated list of id and json. Every feature holds both whether or not they are named.",
+            },
+            id_column: {
+                type: "string",
+                maxLength: 63,
+                description:
+                    "Optional. Give id to have each feature carry the id of its submission as its feature id.",
+            },
+            form_id: {
+                type: "integer",
+                description: "ID of a regular form to query data from.",
+            },
+            merged_dataset_id: {
+                type: "integer",
+                description:
+                    "ID of a merged dataset to query data from all constituent forms.",
+            },
+            dataview_id: {
+                type: "integer",
+                description:
+                    "ID of a dataview to query data with applied filters.",
+            },
+            field_name: {
+                type: "string",
+                maxLength: 1024,
+                description: "Optional field name for custom JSON filtering.",
+            },
+            field_value: {
+                type: "string",
+                maxLength: 4096,
+                description:
+                    "Optional field value for custom JSON filtering (used with field_name).",
+            },
         },
     },
 };
