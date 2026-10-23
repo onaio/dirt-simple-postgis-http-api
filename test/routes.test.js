@@ -475,15 +475,6 @@ describe("rate limiting", () => {
         });
     }
 
-    test("counts each caller separately behind one trusted hop", async () => {
-        const env = { RATE_MAX: "1", TRUST_PROXY: "1" };
-
-        await withApp({ env }, async ({ app }) => {
-            assert.equal(await statusFor(app, "203.0.113.1"), 200);
-            assert.equal(await statusFor(app, "203.0.113.2"), 200);
-        });
-    });
-
     test("counts each caller separately behind a trusted proxy address", async () => {
         const env = { RATE_MAX: "1", TRUST_PROXY: "127.0.0.1" };
 

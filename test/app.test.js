@@ -62,6 +62,17 @@ for (const [name, value] of [
     });
 }
 
+// Fastify trusts no hop given a count, which would quietly count every caller
+// behind the proxy as one.
+for (const value of ["0", "1", "2"]) {
+    test(`build refuses to start with TRUST_PROXY set to ${value} hops`, async () => {
+        await assert.rejects(
+            () => build(testEnv({ TRUST_PROXY: value })),
+            /TRUST_PROXY must name the proxy addresses/,
+        );
+    });
+}
+
 test("build accepts a schema-qualified table name", async () => {
     const app = await build(testEnv({ TABLE_NAME: "public.logger_instance" }));
 
