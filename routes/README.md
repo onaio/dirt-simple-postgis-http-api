@@ -51,14 +51,17 @@ const schema = {
   tags: ['feature'],
   summary: 'Return bounds',
   querystring: {
-    form_id: {
-      type: 'integer',
-      description: 'ID of a regular form to query data from.'
-    },
-    field_name: {
-      type: 'string',
-      maxLength: 1024,
-      description: 'Optional field name for custom JSON filtering.'
+    type: 'object',
+    properties: {
+      form_id: {
+        type: 'integer',
+        description: 'ID of a regular form to query data from.'
+      },
+      field_name: {
+        type: 'string',
+        maxLength: 1024,
+        description: 'Optional field name for custom JSON filtering.'
+      }
     }
   }
 }

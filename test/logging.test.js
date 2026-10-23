@@ -140,6 +140,7 @@ describe("loggerOptions", () => {
             method: "GET",
             url: "/v1/bounds?form_id=7&temp_token=abc123",
             headers: { "accept-version": "1.x" },
+            host: "tiles.example.test:3000",
             hostname: "tiles.example.test",
             ip: "10.0.0.1",
             socket: { remotePort: 4000 },
@@ -150,7 +151,7 @@ describe("loggerOptions", () => {
         assert.match(logged.url, /form_id=7/);
         assert.equal(logged.remoteAddress, "10.0.0.1");
         assert.equal(logged.remotePort, 4000);
-        assert.equal(logged.hostname, "tiles.example.test");
+        assert.equal(logged.host, "tiles.example.test:3000");
         assert.equal(logged.version, "1.x");
     });
 

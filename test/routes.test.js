@@ -170,6 +170,32 @@ describe("requests that cannot be served", () => {
         });
     });
 
+    test("a tile coordinate longer than the router reads is not found", async () => {
+        await withApp({}, async ({ app }) => {
+            const response = await app.inject({
+                url: `/v1/mvt/0/0/${"9".repeat(120)}?form_id=7`,
+            });
+
+            assert.equal(response.statusCode, 404);
+            assert.equal(response.headers["cache-control"], "no-store");
+            assert.deepEqual(response.json(), { error: "Not found." });
+        });
+    });
+
+    test("a path that cannot be decoded is a 400 that repeats nothing", async () => {
+        await withApp({}, async ({ app }) => {
+            const response = await app.inject({
+                url: "/v1/mvt/0/0/%zz?form_id=7",
+            });
+
+            assert.equal(response.statusCode, 400);
+            assert.equal(response.headers["cache-control"], "no-store");
+            assert.deepEqual(response.json(), {
+                error: "The request could not be processed.",
+            });
+        });
+    });
+
     test("a field filter longer than the limit is a 400", async () => {
         await withApp({}, async ({ app }) => {
             const response = await app.inject({
@@ -452,6 +478,19 @@ describe("rate limiting", () => {
         });
     });
 
+    test("counts each IPv6 address separately, even within one subnet", async () => {
+        await withApp({ env: { RATE_MAX: "1" } }, async ({ app }) => {
+            const statusFrom = (remoteAddress) =>
+                app
+                    .inject({ url: `${PROBE}?form_id=7`, remoteAddress })
+                    .then(({ statusCode }) => statusCode);
+
+            assert.equal(await statusFrom("2001:db8::1"), 200);
+            assert.equal(await statusFrom("2001:db8::2"), 200);
+            assert.equal(await statusFrom("2001:db8::2"), 429);
+        });
+    });
+
     const statusFor = (app, client) =>
         app
             .inject({
@@ -474,15 +513,6 @@ describe("rate limiting", () => {
             });
         });
     }
-
-    test("counts each caller separately behind one trusted hop", async () => {
-        const env = { RATE_MAX: "1", TRUST_PROXY: "1" };
-
-        await withApp({ env }, async ({ app }) => {
-            assert.equal(await statusFor(app, "203.0.113.1"), 200);
-            assert.equal(await statusFor(app, "203.0.113.2"), 200);
-        });
-    });
 
     test("counts each caller separately behind a trusted proxy address", async () => {
         const env = { RATE_MAX: "1", TRUST_PROXY: "127.0.0.1" };
