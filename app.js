@@ -1,6 +1,6 @@
 const path = require("path");
 
-const { errorCodes } = require("fastify");
+const Fastify = require("fastify");
 
 const {
     checkConfiguration,
@@ -71,12 +71,11 @@ const refuseFragment = async (request, reply) => {
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
 
-// Framework errors are answered before any hook runs: keepNoFailure, CORS and
-// the rate limiter never see them. A parameter too long for the router names
-// no route.
+// Framework errors are answered before any hook runs, so keepNoFailure never
+// sees them. A parameter too long for the router names no route.
 const handleFrameworkError = (error, request, reply) => {
     refuseCaching(reply);
-    return error instanceof errorCodes.FST_ERR_MAX_PARAM_LENGTH
+    return error instanceof Fastify.errorCodes.FST_ERR_MAX_PARAM_LENGTH
         ? handleNotFound(request, reply)
         : handleError(error, request, reply);
 };
@@ -128,7 +127,7 @@ async function build(env) {
     const rateLimit = requestsPerMinute(env);
     const permissionCheck = createPermissionCheck(env);
 
-    const fastify = require("fastify")({
+    const fastify = Fastify({
         logger: loggerOptions(env),
         trustProxy: trustedProxy(env),
         routerOptions: {
