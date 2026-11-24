@@ -6,7 +6,8 @@ const PROBE = "/v1/probe";
 
 // find-my-way's default limit on the length of a path parameter.
 const ROUTER_MAX_PARAM_LENGTH = 100;
-const LONGER_THAN_ROUTER_READS = "9".repeat(ROUTER_MAX_PARAM_LENGTH + 1);
+const OVERLONG_TILE = `/v1/mvt/0/0/${"9".repeat(ROUTER_MAX_PARAM_LENGTH + 1)}`;
+const UNDECODABLE_TILE = "/v1/mvt/0/0/%zz";
 
 // Routes are registered as plugins so that they load after the app's own
 // plugins, the way the real routes do.
@@ -37,4 +38,4 @@ const withApp = async ({ respond, env = {}, routes = [] } = {}, run) => {
 
 const query = (parameters) => new URLSearchParams(parameters).toString();
 
-module.exports = { PROBE, LONGER_THAN_ROUTER_READS, withApp, query };
+module.exports = { PROBE, OVERLONG_TILE, UNDECODABLE_TILE, withApp, query };

@@ -101,11 +101,11 @@ for (const [value, proxies] of [
     ["::1", ["::1"]],
     ["fd00::/8", ["fd00::/8"]],
 ]) {
-    test(`TRUST_PROXY "${value}" trusts ${proxies.join(" and ")}`, async () => {
+    test(`TRUST_PROXY "${value}" is read as ${proxies.join(" and ")}`, async () => {
         assert.deepEqual(trustedProxy({ TRUST_PROXY: value }), proxies);
-
-        const app = await build(testEnv({ TRUST_PROXY: value }));
-        await app.close();
+        await assert.doesNotReject(async () =>
+            (await build(testEnv({ TRUST_PROXY: value }))).close(),
+        );
     });
 }
 

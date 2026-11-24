@@ -8,7 +8,12 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 
 const { build } = require("../app");
-const { PROBE, LONGER_THAN_ROUTER_READS, withApp } = require("./helpers/app");
+const {
+    PROBE,
+    OVERLONG_TILE,
+    UNDECODABLE_TILE,
+    withApp,
+} = require("./helpers/app");
 const { testEnv } = require("./helpers/env");
 
 describe("exposed routes", () => {
@@ -174,7 +179,7 @@ describe("requests that cannot be served", () => {
     test("a tile coordinate longer than the router reads is not found", async () => {
         await withApp({}, async ({ app }) => {
             const response = await app.inject({
-                url: `/v1/mvt/0/0/${LONGER_THAN_ROUTER_READS}?form_id=7`,
+                url: `${OVERLONG_TILE}?form_id=7`,
             });
 
             assert.equal(response.statusCode, 404);
@@ -186,7 +191,7 @@ describe("requests that cannot be served", () => {
     test("a path that cannot be decoded is a 400 that does not echo the path", async () => {
         await withApp({}, async ({ app }) => {
             const response = await app.inject({
-                url: "/v1/mvt/0/0/%zz?form_id=7",
+                url: `${UNDECODABLE_TILE}?form_id=7`,
             });
 
             assert.equal(response.statusCode, 400);
@@ -437,21 +442,21 @@ describe("database connection", () => {
 });
 
 describe("rate limiting", () => {
-    const statusOf = (app, options = {}) =>
+    const injectedStatus = (app, options = {}) =>
         app
             .inject({ url: `${PROBE}?form_id=7`, ...options })
             .then(({ statusCode }) => statusCode);
 
-    const statusFor = (app, client, proxy = "127.0.0.1") =>
-        statusOf(app, {
-            remoteAddress: proxy,
+    const statusFor = (app, client, peer = "127.0.0.1") =>
+        injectedStatus(app, {
+            remoteAddress: peer,
             headers: { "x-forwarded-for": client },
         });
 
     const statuses = async (app, count) => {
         const codes = [];
         for (let sent = 0; sent < count; sent += 1) {
-            codes.push(await statusOf(app));
+            codes.push(await injectedStatus(app));
         }
         return codes;
     };
@@ -493,7 +498,7 @@ describe("rate limiting", () => {
     // The rate limiter's own default key; the app sets nothing for it.
     test("counts IPv6 callers by their /64 subnet", async () => {
         await withApp({ env: { RATE_MAX: "1" } }, async ({ app }) => {
-            const from = (remoteAddress) => statusOf(app, { remoteAddress });
+            const from = (remoteAddress) => injectedStatus(app, { remoteAddress });
 
             assert.equal(await from("2001:db8::1"), 200);
             assert.equal(await from("2001:db8::2"), 429);
@@ -523,6 +528,7 @@ describe("rate limiting", () => {
             assert.equal(await statusFor(app, "203.0.113.1", "10.0.0.5"), 200);
             assert.equal(await statusFor(app, "203.0.113.2", "127.0.0.1"), 200);
             assert.equal(await statusFor(app, "203.0.113.1", "10.0.0.5"), 429);
+            assert.equal(await statusFor(app, "203.0.113.3", "127.0.0.1"), 200);
         });
     });
 

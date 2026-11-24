@@ -6,7 +6,8 @@ const path = require("node:path");
 
 const {
     PROBE,
-    LONGER_THAN_ROUTER_READS,
+    OVERLONG_TILE,
+    UNDECODABLE_TILE,
     withApp,
     query,
 } = require("./helpers/app");
@@ -459,12 +460,12 @@ describe("permission check: logging", () => {
     const rejectedByRouter = [
         [
             "cannot be decoded",
-            `/v1/mvt/0/0/%zz?form_id=7&temp_token=${TOKEN}`,
+            `${UNDECODABLE_TILE}?form_id=7&temp_token=${TOKEN}`,
             400,
         ],
         [
             "holds a parameter longer than the router reads",
-            `/v1/mvt/0/0/${LONGER_THAN_ROUTER_READS}?form_id=7&temp_token=${TOKEN}`,
+            `${OVERLONG_TILE}?form_id=7&temp_token=${TOKEN}`,
             404,
         ],
     ];
