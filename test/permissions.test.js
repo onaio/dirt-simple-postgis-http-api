@@ -4,7 +4,12 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { PROBE, withApp, query } = require("./helpers/app");
+const {
+    PROBE,
+    LONGER_THAN_ROUTER_READS,
+    withApp,
+    query,
+} = require("./helpers/app");
 
 const outboundUrls = (onadata) => onadata.requests().map(({ url }) => url);
 
@@ -437,6 +442,21 @@ describe("permission check: logging", () => {
             `${PROBE}?form_id=7&temp_token=${TOKEN}&temp_token=${TOKEN}`,
         ],
     ];
+
+    for (const [label, url] of [
+        ["cannot be decoded", `/v1/mvt/0/0/%zz?form_id=7&temp_token=${TOKEN}`],
+        [
+            "holds a parameter longer than the router reads",
+            `/v1/mvt/0/0/${LONGER_THAN_ROUTER_READS}?form_id=7&temp_token=${TOKEN}`,
+        ],
+    ]) {
+        test(`a path that ${label} is logged without the temp token`, async () => {
+            const logged = await loggedDuring(() => ({ status: 200 }), url);
+
+            assert.match(logged, /form_id=7/);
+            assert.doesNotMatch(logged, new RegExp(TOKEN));
+        });
+    }
 
     for (const [label, url] of refused) {
         test(`a request that ${label} is logged without the temp token`, async () => {

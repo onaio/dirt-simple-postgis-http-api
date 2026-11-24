@@ -4,6 +4,9 @@ const { startOnadataStub } = require("./onadata-stub");
 
 const PROBE = "/v1/probe";
 
+// find-my-way reads path parameters up to 100 characters by default.
+const LONGER_THAN_ROUTER_READS = "9".repeat(101);
+
 // Registered as a plugin so that it loads after the app's own plugins, the
 // way the real routes do.
 const probe = async (instance) => {
@@ -31,4 +34,4 @@ const withApp = async ({ respond, env = {} } = {}, run) => {
 
 const query = (parameters) => new URLSearchParams(parameters).toString();
 
-module.exports = { PROBE, withApp, query };
+module.exports = { PROBE, LONGER_THAN_ROUTER_READS, withApp, query };

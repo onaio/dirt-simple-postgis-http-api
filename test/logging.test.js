@@ -152,6 +152,7 @@ describe("loggerOptions", () => {
         assert.equal(logged.remoteAddress, "10.0.0.1");
         assert.equal(logged.remotePort, 4000);
         assert.equal(logged.host, "tiles.example.test:3000");
+        assert.equal(logged.hostname, undefined);
         assert.equal(logged.version, "1.x");
     });
 

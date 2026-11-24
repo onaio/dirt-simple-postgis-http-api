@@ -2,12 +2,13 @@ const { describe, test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const fs = require("node:fs");
+const zlib = require("node:zlib");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 
 const { build } = require("../app");
-const { PROBE, withApp } = require("./helpers/app");
+const { PROBE, LONGER_THAN_ROUTER_READS, withApp } = require("./helpers/app");
 const { testEnv } = require("./helpers/env");
 
 describe("exposed routes", () => {
@@ -173,7 +174,7 @@ describe("requests that cannot be served", () => {
     test("a tile coordinate longer than the router reads is not found", async () => {
         await withApp({}, async ({ app }) => {
             const response = await app.inject({
-                url: `/v1/mvt/0/0/${"9".repeat(120)}?form_id=7`,
+                url: `/v1/mvt/0/0/${LONGER_THAN_ROUTER_READS}?form_id=7`,
             });
 
             assert.equal(response.statusCode, 404);
@@ -182,7 +183,7 @@ describe("requests that cannot be served", () => {
         });
     });
 
-    test("a path that cannot be decoded is a 400 that repeats nothing", async () => {
+    test("a path that cannot be decoded is a 400 that does not echo the path", async () => {
         await withApp({}, async ({ app }) => {
             const response = await app.inject({
                 url: "/v1/mvt/0/0/%zz?form_id=7",
@@ -436,12 +437,20 @@ describe("database connection", () => {
 });
 
 describe("rate limiting", () => {
+    const statusOf = (app, options = {}) =>
+        app
+            .inject({ url: `${PROBE}?form_id=7`, ...options })
+            .then(({ statusCode }) => statusCode);
+
+    const statusFor = (app, client) =>
+        statusOf(app, { headers: { "x-forwarded-for": client } });
+
     const statuses = async (app, count) => {
-        const responses = [];
+        const codes = [];
         for (let sent = 0; sent < count; sent += 1) {
-            responses.push(await app.inject({ url: `${PROBE}?form_id=7` }));
+            codes.push(await statusOf(app));
         }
-        return responses.map(({ statusCode }) => statusCode);
+        return codes;
     };
 
     test("is off unless a limit is configured", async () => {
@@ -478,26 +487,15 @@ describe("rate limiting", () => {
         });
     });
 
-    test("counts each IPv6 address separately, even within one subnet", async () => {
+    test("counts IPv6 callers by their /64 subnet", async () => {
         await withApp({ env: { RATE_MAX: "1" } }, async ({ app }) => {
-            const statusFrom = (remoteAddress) =>
-                app
-                    .inject({ url: `${PROBE}?form_id=7`, remoteAddress })
-                    .then(({ statusCode }) => statusCode);
+            const from = (remoteAddress) => statusOf(app, { remoteAddress });
 
-            assert.equal(await statusFrom("2001:db8::1"), 200);
-            assert.equal(await statusFrom("2001:db8::2"), 200);
-            assert.equal(await statusFrom("2001:db8::2"), 429);
+            assert.equal(await from("2001:db8::1"), 200);
+            assert.equal(await from("2001:db8::2"), 429);
+            assert.equal(await from("2001:db8:0:1::1"), 200);
         });
     });
-
-    const statusFor = (app, client) =>
-        app
-            .inject({
-                url: `${PROBE}?form_id=7`,
-                headers: { "x-forwarded-for": client },
-            })
-            .then(({ statusCode }) => statusCode);
 
     for (const [label, proxy] of [
         ["is not configured", {}],
@@ -614,6 +612,28 @@ describe("cross-origin configuration", () => {
         });
     });
 
+    test("a preflight allows only the methods the routes answer", async () => {
+        const env = { CORS_ORIGINS: "https://a.example.test" };
+
+        await withApp({ env }, async ({ app, onadata }) => {
+            const response = await app.inject({
+                method: "OPTIONS",
+                url: `${PROBE}?form_id=7`,
+                headers: {
+                    origin: "https://a.example.test",
+                    "access-control-request-method": "GET",
+                },
+            });
+
+            assert.equal(response.statusCode, 204);
+            assert.equal(
+                response.headers["access-control-allow-methods"],
+                "GET,HEAD,POST",
+            );
+            assert.equal(onadata.requests().length, 0);
+        });
+    });
+
     test("no origin is allowed when none is configured", async () => {
         const env = { CORS_ORIGINS: undefined };
 
@@ -630,4 +650,50 @@ describe("cross-origin configuration", () => {
             );
         });
     });
+});
+
+describe("compression", () => {
+    const TILE = "/v1/probe-tile";
+    const tile = Buffer.alloc(4096, 7);
+
+    // Registered after the app's own plugins, as the real routes are.
+    const tileRoute = async (instance) => {
+        instance.get(TILE, (request, reply) =>
+            reply.type("application/x-protobuf").send(tile),
+        );
+    };
+
+    const fetchAccepting = (encoding) =>
+        withApp({}, ({ app }) => {
+            app.register(tileRoute);
+            const headers = encoding ? { "accept-encoding": encoding } : {};
+            return app.inject({ url: `${TILE}?form_id=7`, headers });
+        });
+
+    test("a tile is sent as is to a client that accepts no encoding", async () => {
+        const response = await fetchAccepting(undefined);
+
+        assert.equal(response.statusCode, 200);
+        assert.equal(response.headers["content-encoding"], undefined);
+        assert.deepEqual(response.rawPayload, tile);
+    });
+
+    test("a tile is gzipped for a client that accepts gzip", async () => {
+        const response = await fetchAccepting("gzip");
+
+        assert.equal(response.headers["content-encoding"], "gzip");
+        assert.ok(response.rawPayload.length < tile.length);
+        assert.deepEqual(zlib.gunzipSync(response.rawPayload), tile);
+    });
+
+    test(
+        "a tile is sent in zstd to a client that prefers it",
+        { skip: !zlib.zstdDecompressSync && "this Node has no zstd" },
+        async () => {
+            const response = await fetchAccepting("zstd, gzip");
+
+            assert.equal(response.headers["content-encoding"], "zstd");
+            assert.deepEqual(zlib.zstdDecompressSync(response.rawPayload), tile);
+        },
+    );
 });
