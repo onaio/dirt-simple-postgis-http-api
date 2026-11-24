@@ -1,5 +1,7 @@
 const path = require("path");
 
+const { errorCodes } = require("fastify");
+
 const {
     checkConfiguration,
     requestsPerMinute,
@@ -48,9 +50,11 @@ const watchIdleConnections = async (fastify) => {
 
 // A failure that a browser kept would go on being shown after its cause had
 // passed.
+const refuseCaching = (reply) => reply.header("Cache-Control", "no-store");
+
 const keepNoFailure = async (request, reply) => {
     if (reply.statusCode >= 400) {
-        reply.header("Cache-Control", "no-store");
+        refuseCaching(reply);
     }
 };
 
@@ -67,11 +71,12 @@ const refuseFragment = async (request, reply) => {
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
 
-// Answered before any hook runs, so without what keepNoFailure would add. A
-// parameter too long for the router names no route.
+// Framework errors are answered before any hook runs: keepNoFailure, CORS and
+// the rate limiter never see them. A parameter too long for the router names
+// no route.
 const handleFrameworkError = (error, request, reply) => {
-    reply.header("Cache-Control", "no-store");
-    return error.code === "FST_ERR_MAX_PARAM_LENGTH"
+    refuseCaching(reply);
+    return error instanceof errorCodes.FST_ERR_MAX_PARAM_LENGTH
         ? handleNotFound(request, reply)
         : handleError(error, request, reply);
 };
@@ -143,9 +148,6 @@ async function build(env) {
             global: false,
             max: rateLimit,
             timeWindow: "1 minute",
-            // Counted per address, as the README promises, rather than per
-            // /64 subnet.
-            ipv6Subnet: 128,
             allowList: isPublicRoute,
         });
     }
