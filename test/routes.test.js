@@ -442,8 +442,11 @@ describe("rate limiting", () => {
             .inject({ url: `${PROBE}?form_id=7`, ...options })
             .then(({ statusCode }) => statusCode);
 
-    const statusFor = (app, client) =>
-        statusOf(app, { headers: { "x-forwarded-for": client } });
+    const statusFor = (app, client, proxy = "127.0.0.1") =>
+        statusOf(app, {
+            remoteAddress: proxy,
+            headers: { "x-forwarded-for": client },
+        });
 
     const statuses = async (app, count) => {
         const codes = [];
@@ -517,9 +520,9 @@ describe("rate limiting", () => {
         const env = { RATE_MAX: "1", TRUST_PROXY: "10.0.0.0/8, loopback" };
 
         await withApp({ env }, async ({ app }) => {
-            assert.equal(await statusFor(app, "203.0.113.1"), 200);
-            assert.equal(await statusFor(app, "203.0.113.2"), 200);
-            assert.equal(await statusFor(app, "203.0.113.1"), 429);
+            assert.equal(await statusFor(app, "203.0.113.1", "10.0.0.5"), 200);
+            assert.equal(await statusFor(app, "203.0.113.2", "127.0.0.1"), 200);
+            assert.equal(await statusFor(app, "203.0.113.1", "10.0.0.5"), 429);
         });
     });
 
@@ -529,6 +532,7 @@ describe("rate limiting", () => {
         await withApp({ env }, async ({ app }) => {
             assert.equal(await statusFor(app, "203.0.113.1"), 200);
             assert.equal(await statusFor(app, "203.0.113.2"), 200);
+            assert.equal(await statusFor(app, "203.0.113.1"), 429);
         });
     });
 

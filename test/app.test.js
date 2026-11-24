@@ -79,6 +79,12 @@ for (const [label, value] of [
     ["an IPv4-mapped range", "::ffff:10.0.0.0/104"],
     ["an IPv4-compatible address", "::10.0.0.1"],
     ["an IPv6 address with a zone", "fe80::1%eth0"],
+    ["every IPv4-mapped address, spelt out", "0::ffff:0:0/96"],
+    ["an IPv4-mapped address, spelt in full", "0:0:0:0:0:ffff:a00:1"],
+    ["an IPv4-compatible address in hex", "::a00:1"],
+    ["a netmask", "10.0.0.0/255.0.0.0"],
+    ["a prefix too long for IPv6", "fd00::/129"],
+    ["a prefix with a leading zero", "10.0.0.0/08"],
 ]) {
     test(`build refuses to start with TRUST_PROXY set to ${label}`, async () => {
         await assert.rejects(
