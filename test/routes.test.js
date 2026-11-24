@@ -2,10 +2,10 @@ const { describe, test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const fs = require("node:fs");
-const zlib = require("node:zlib");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 
 const { build } = require("../app");
 const { PROBE, LONGER_THAN_ROUTER_READS, withApp } = require("./helpers/app");
@@ -487,6 +487,7 @@ describe("rate limiting", () => {
         });
     });
 
+    // The rate limiter's own default key; the app sets nothing for it.
     test("counts IPv6 callers by their /64 subnet", async () => {
         await withApp({ env: { RATE_MAX: "1" } }, async ({ app }) => {
             const from = (remoteAddress) => statusOf(app, { remoteAddress });
@@ -511,6 +512,16 @@ describe("rate limiting", () => {
             });
         });
     }
+
+    test("counts each caller separately behind a proxy named in a list", async () => {
+        const env = { RATE_MAX: "1", TRUST_PROXY: "10.0.0.0/8, loopback" };
+
+        await withApp({ env }, async ({ app }) => {
+            assert.equal(await statusFor(app, "203.0.113.1"), 200);
+            assert.equal(await statusFor(app, "203.0.113.2"), 200);
+            assert.equal(await statusFor(app, "203.0.113.1"), 429);
+        });
+    });
 
     test("counts each caller separately behind a trusted proxy address", async () => {
         const env = { RATE_MAX: "1", TRUST_PROXY: "127.0.0.1" };
@@ -612,7 +623,7 @@ describe("cross-origin configuration", () => {
         });
     });
 
-    test("a preflight allows only the methods the routes answer", async () => {
+    test("a preflight allows the cors plugin's default methods without a permission check", async () => {
         const env = { CORS_ORIGINS: "https://a.example.test" };
 
         await withApp({ env }, async ({ app, onadata }) => {
@@ -654,9 +665,10 @@ describe("cross-origin configuration", () => {
 
 describe("compression", () => {
     const TILE = "/v1/probe-tile";
-    const tile = Buffer.alloc(4096, 7);
+    // @fastify/compress sends a body under its default 1024-byte threshold as is.
+    const LARGER_THAN_COMPRESS_THRESHOLD = 4096;
+    const tile = Buffer.alloc(LARGER_THAN_COMPRESS_THRESHOLD, 7);
 
-    // Registered after the app's own plugins, as the real routes are.
     const tileRoute = async (instance) => {
         instance.get(TILE, (request, reply) =>
             reply.type("application/x-protobuf").send(tile),
@@ -664,14 +676,13 @@ describe("compression", () => {
     };
 
     const fetchAccepting = (encoding) =>
-        withApp({}, ({ app }) => {
-            app.register(tileRoute);
+        withApp({ routes: [tileRoute] }, ({ app }) => {
             const headers = encoding ? { "accept-encoding": encoding } : {};
             return app.inject({ url: `${TILE}?form_id=7`, headers });
         });
 
     test("a tile is sent as is to a client that accepts no encoding", async () => {
-        const response = await fetchAccepting(undefined);
+        const response = await fetchAccepting();
 
         assert.equal(response.statusCode, 200);
         assert.equal(response.headers["content-encoding"], undefined);
@@ -687,7 +698,7 @@ describe("compression", () => {
     });
 
     test(
-        "a tile is sent in zstd to a client that prefers it",
+        "a tile is sent in zstd to a client that accepts it",
         { skip: !zlib.zstdDecompressSync && "this Node has no zstd" },
         async () => {
             const response = await fetchAccepting("zstd, gzip");

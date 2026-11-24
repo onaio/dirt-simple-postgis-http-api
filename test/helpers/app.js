@@ -4,17 +4,18 @@ const { startOnadataStub } = require("./onadata-stub");
 
 const PROBE = "/v1/probe";
 
-// find-my-way reads path parameters up to 100 characters by default.
-const LONGER_THAN_ROUTER_READS = "9".repeat(101);
+// find-my-way's default limit on the length of a path parameter.
+const ROUTER_MAX_PARAM_LENGTH = 100;
+const LONGER_THAN_ROUTER_READS = "9".repeat(ROUTER_MAX_PARAM_LENGTH + 1);
 
-// Registered as a plugin so that it loads after the app's own plugins, the
-// way the real routes do.
+// Routes are registered as plugins so that they load after the app's own
+// plugins, the way the real routes do.
 const probe = async (instance) => {
     instance.get(PROBE, (request, reply) => reply.send("reached"));
 };
 
-const withServer = async (app, run) => {
-    app.register(probe);
+const withServer = async (app, routes, run) => {
+    [probe, ...routes].forEach((route) => app.register(route));
     try {
         return await run(app);
     } finally {
@@ -22,11 +23,13 @@ const withServer = async (app, run) => {
     }
 };
 
-const withApp = async ({ respond, env = {} } = {}, run) => {
+const withApp = async ({ respond, env = {}, routes = [] } = {}, run) => {
     const onadata = await startOnadataStub(respond);
     try {
         const app = await build(testEnv({ ONADATA_URL: onadata.url, ...env }));
-        return await withServer(app, (server) => run({ app: server, onadata }));
+        return await withServer(app, routes, (server) =>
+            run({ app: server, onadata }),
+        );
     } finally {
         await onadata.close();
     }

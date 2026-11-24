@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const { build } = require("../app");
+const { trustedProxy } = require("../lib/configuration");
 const { testEnv } = require("./helpers/env");
 
 test("health check answers without a permission check", async () => {
@@ -62,18 +63,24 @@ for (const [name, value] of [
     });
 }
 
-for (const value of [
-    "0",
-    "1",
-    "2",
-    "1 ",
-    "01",
-    "0x1",
-    "1,10.0.0.1",
-    "proxy.internal",
-    "10.0.0.0/33",
+for (const [label, value] of [
+    ["zero hops", "0"],
+    ["a number of hops", "1"],
+    ["a number with a trailing space", "1 "],
+    ["a number with a leading zero", "01"],
+    ["a hex number", "0x1"],
+    ["a list that holds a number", "1,10.0.0.1"],
+    ["a list with an empty entry", "10.0.0.1,"],
+    ["a host name", "proxy.internal"],
+    ["a prefix too long for IPv4", "10.0.0.0/33"],
+    ["an IPv4 range of every address", "0.0.0.0/0"],
+    ["an IPv6 range of every address", "::/0"],
+    ["every IPv4-mapped address", "::ffff:0:0/96"],
+    ["an IPv4-mapped range", "::ffff:10.0.0.0/104"],
+    ["an IPv4-compatible address", "::10.0.0.1"],
+    ["an IPv6 address with a zone", "fe80::1%eth0"],
 ]) {
-    test(`build refuses to start with TRUST_PROXY set to "${value}"`, async () => {
+    test(`build refuses to start with TRUST_PROXY set to ${label}`, async () => {
         await assert.rejects(
             () => build(testEnv({ TRUST_PROXY: value })),
             /TRUST_PROXY must name the proxy addresses/,
@@ -81,16 +88,17 @@ for (const value of [
     });
 }
 
-for (const value of [
-    "127.0.0.1",
-    "10.0.0.0/8, 192.168.1.1",
-    "loopback, uniquelocal",
-    "::1",
-    "fd00::/8",
+for (const [value, proxies] of [
+    ["127.0.0.1", ["127.0.0.1"]],
+    ["10.0.0.0/8, 192.168.1.1", ["10.0.0.0/8", "192.168.1.1"]],
+    ["loopback, uniquelocal", ["loopback", "uniquelocal"]],
+    ["::1", ["::1"]],
+    ["fd00::/8", ["fd00::/8"]],
 ]) {
-    test(`build accepts TRUST_PROXY set to "${value}"`, async () => {
-        const app = await build(testEnv({ TRUST_PROXY: value }));
+    test(`TRUST_PROXY "${value}" trusts ${proxies.join(" and ")}`, async () => {
+        assert.deepEqual(trustedProxy({ TRUST_PROXY: value }), proxies);
 
+        const app = await build(testEnv({ TRUST_PROXY: value }));
         await app.close();
     });
 }

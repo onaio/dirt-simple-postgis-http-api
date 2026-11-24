@@ -443,25 +443,27 @@ describe("permission check: logging", () => {
         ],
     ];
 
-    for (const [label, url] of [
+    for (const [label, url] of refused) {
+        test(`a request that ${label} is logged without the temp token`, async () => {
+            const logged = await loggedDuring(() => ({ status: 200 }), url);
+
+            assert.doesNotMatch(logged, new RegExp(TOKEN));
+        });
+    }
+
+    const rejectedByRouter = [
         ["cannot be decoded", `/v1/mvt/0/0/%zz?form_id=7&temp_token=${TOKEN}`],
         [
             "holds a parameter longer than the router reads",
             `/v1/mvt/0/0/${LONGER_THAN_ROUTER_READS}?form_id=7&temp_token=${TOKEN}`,
         ],
-    ]) {
+    ];
+
+    for (const [label, url] of rejectedByRouter) {
         test(`a path that ${label} is logged without the temp token`, async () => {
             const logged = await loggedDuring(() => ({ status: 200 }), url);
 
             assert.match(logged, /form_id=7/);
-            assert.doesNotMatch(logged, new RegExp(TOKEN));
-        });
-    }
-
-    for (const [label, url] of refused) {
-        test(`a request that ${label} is logged without the temp token`, async () => {
-            const logged = await loggedDuring(() => ({ status: 200 }), url);
-
             assert.doesNotMatch(logged, new RegExp(TOKEN));
         });
     }
