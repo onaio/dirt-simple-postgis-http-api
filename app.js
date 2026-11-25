@@ -1,5 +1,7 @@
 const path = require("path");
 
+const Fastify = require("fastify");
+
 const {
     checkConfiguration,
     requestsPerMinute,
@@ -48,9 +50,11 @@ const watchIdleConnections = async (fastify) => {
 
 // A failure that a browser kept would go on being shown after its cause had
 // passed.
+const refuseCaching = (reply) => reply.header("Cache-Control", "no-store");
+
 const keepNoFailure = async (request, reply) => {
     if (reply.statusCode >= 400) {
-        reply.header("Cache-Control", "no-store");
+        refuseCaching(reply);
     }
 };
 
@@ -66,6 +70,15 @@ const refuseFragment = async (request, reply) => {
 
 const handleNotFound = (request, reply) =>
     reply.code(404).send({ error: "Not found." });
+
+// Framework errors are answered before any hook runs, so keepNoFailure never
+// sees them. A parameter too long for the router names no route.
+const handleFrameworkError = (error, request, reply) => {
+    refuseCaching(reply);
+    return error instanceof Fastify.errorCodes.FST_ERR_MAX_PARAM_LENGTH
+        ? handleNotFound(request, reply)
+        : handleError(error, request, reply);
+};
 
 const registerPlugins = (fastify, env) => {
     fastify.register(require("@fastify/cors"), { origin: allowedOrigins(env) });
@@ -114,12 +127,15 @@ async function build(env) {
     const rateLimit = requestsPerMinute(env);
     const permissionCheck = createPermissionCheck(env);
 
-    const fastify = require("fastify")({
+    const fastify = Fastify({
         logger: loggerOptions(env),
         trustProxy: trustedProxy(env),
-        // A query that began at a semicolon would be read here and by
-        // nothing in front of this service.
-        useSemicolonDelimiter: false,
+        routerOptions: {
+            // A query that began at a semicolon would be read here and by
+            // nothing in front of this service.
+            useSemicolonDelimiter: false,
+        },
+        frameworkErrors: handleFrameworkError,
     });
 
     fastify.setErrorHandler(handleError);

@@ -48,30 +48,33 @@ const schema = {
     tags: ["feature"],
     summary: "Return bounds",
     querystring: {
-        form_id: {
-            type: "integer",
-            description: "ID of a regular form to query data from.",
-        },
-        merged_dataset_id: {
-            type: "integer",
-            description:
-                "ID of a merged dataset to query data from all constituent forms.",
-        },
-        dataview_id: {
-            type: "integer",
-            description:
-                "ID of a dataview to query data with applied filters.",
-        },
-        field_name: {
-            type: "string",
-            maxLength: 1024,
-            description: "Optional field name for custom JSON filtering.",
-        },
-        field_value: {
-            type: "string",
-            maxLength: 4096,
-            description:
-                "Optional field value for custom JSON filtering (used with field_name).",
+        type: "object",
+        properties: {
+            form_id: {
+                type: "integer",
+                description: "ID of a regular form to query data from.",
+            },
+            merged_dataset_id: {
+                type: "integer",
+                description:
+                    "ID of a merged dataset to query data from all constituent forms.",
+            },
+            dataview_id: {
+                type: "integer",
+                description:
+                    "ID of a dataview to query data with applied filters.",
+            },
+            field_name: {
+                type: "string",
+                maxLength: 1024,
+                description: "Optional field name for custom JSON filtering.",
+            },
+            field_value: {
+                type: "string",
+                maxLength: 4096,
+                description:
+                    "Optional field value for custom JSON filtering (used with field_name).",
+            },
         },
     },
 };

@@ -4,7 +4,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { PROBE, withApp, query } = require("./helpers/app");
+const {
+    PROBE,
+    OVERLONG_TILE,
+    UNDECODABLE_TILE,
+    withApp,
+    query,
+} = require("./helpers/app");
 
 const outboundUrls = (onadata) => onadata.requests().map(({ url }) => url);
 
@@ -401,22 +407,27 @@ describe("permission check: logging", () => {
         const logFile = path.join(directory, "server.log");
         const env = { SERVER_LOGGER: "info", SERVER_LOGGER_PATH: logFile };
         try {
-            await withApp({ respond, env }, ({ app }) => app.inject({ url }));
-            return fs.readFileSync(logFile, "utf8");
+            const response = await withApp({ respond, env }, ({ app }) =>
+                app.inject({ url }),
+            );
+            return {
+                logged: fs.readFileSync(logFile, "utf8"),
+                statusCode: response.statusCode,
+            };
         } finally {
             fs.rmSync(directory, { recursive: true, force: true });
         }
     };
 
     test("an allowed request is logged without the temp token", async () => {
-        const logged = await loggedDuring(() => ({ status: 200 }));
+        const { logged } = await loggedDuring(() => ({ status: 200 }));
 
         assert.match(logged, /form_id=7/);
         assert.doesNotMatch(logged, new RegExp(TOKEN));
     });
 
     test("a denied request is logged without the temp token", async () => {
-        const logged = await loggedDuring(() => ({ status: 403 }));
+        const { logged } = await loggedDuring(() => ({ status: 403 }));
 
         assert.match(logged, /form_id=7/);
         assert.doesNotMatch(logged, new RegExp(TOKEN));
@@ -440,8 +451,34 @@ describe("permission check: logging", () => {
 
     for (const [label, url] of refused) {
         test(`a request that ${label} is logged without the temp token`, async () => {
-            const logged = await loggedDuring(() => ({ status: 200 }), url);
+            const { logged } = await loggedDuring(() => ({ status: 200 }), url);
 
+            assert.doesNotMatch(logged, new RegExp(TOKEN));
+        });
+    }
+
+    const rejectedByRouter = [
+        [
+            "cannot be decoded",
+            `${UNDECODABLE_TILE}?form_id=7&temp_token=${TOKEN}`,
+            400,
+        ],
+        [
+            "holds a parameter longer than the router reads",
+            `${OVERLONG_TILE}?form_id=7&temp_token=${TOKEN}`,
+            404,
+        ],
+    ];
+
+    for (const [label, url, status] of rejectedByRouter) {
+        test(`a path that ${label} is logged without the temp token`, async () => {
+            const { logged, statusCode } = await loggedDuring(
+                () => ({ status: 200 }),
+                url,
+            );
+
+            assert.equal(statusCode, status);
+            assert.match(logged, /form_id=7/);
             assert.doesNotMatch(logged, new RegExp(TOKEN));
         });
     }
